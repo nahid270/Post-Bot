@@ -282,7 +282,7 @@ def generate_html_code(data, links, ad_link):
         </div>
 
         <div class="tg-join-section" style="margin-top: 40px; border-top: 2px solid #eee; padding-top: 20px;">
-            <a href="https://t.me/YOUR_CHANNEL_LINK_HERE" target="_blank">
+            <a href="https://t.me/+6hvCoblt6CxhZjhl" target="_blank">
                 <img src="{BTN_TELEGRAM}" style="width: 250px; max-width: 90%; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,136,204,0.3);">
             </a>
             <p style="font-size: 12px; color: #888; margin-top: 5px;">Join our Telegram for more updates!</p>
