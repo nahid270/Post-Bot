@@ -40,7 +40,6 @@ if not all([BOT_TOKEN, API_ID, API_HASH, TMDB_API_KEY]):
 # ---- GLOBAL STATE ----
 user_conversations = {}
 user_ad_links = {}
-user_promo_config = {}
 
 USER_AD_LINKS_FILE = "user_ad_links.json"
 DEFAULT_AD_LINK = "https://www.google.com"
@@ -73,12 +72,13 @@ def load_json(filename):
             return {int(k): v for k, v in json.load(f).items()}
     return {}
 
+# Load saved data on startup
 user_ad_links = load_json(USER_AD_LINKS_FILE)
 
 # ---- FLASK KEEP-ALIVE ----
 app = Flask(__name__)
 @app.route('/')
-def home(): return "🤖 Bot is Running with Updated HTML!"
+def home(): return "🤖 Bot is Running with MySettings!"
 def run_flask(): app.run(host='0.0.0.0', port=8080)
 
 # ---- BOT INIT ----
@@ -132,8 +132,8 @@ def generate_html_code(data, links, ad_link):
     instruction_html = """
     <style>
         .dl-instruction-box {
-            background-color: #fff8e1; /* হালকা হলুদ */
-            border-left: 5px solid #ffc107; /* হলুদ বর্ডার */
+            background-color: #fff8e1;
+            border-left: 5px solid #ffc107;
             padding: 15px;
             margin: 20px 0;
             border-radius: 5px;
@@ -262,7 +262,7 @@ def generate_formatted_caption(data):
     return caption
 
 def generate_image(data):
-    # This runs in a separate thread to not block the async loop
+    # Runs in a thread
     try:
         poster_url = data.get('manual_poster_url') or (f"https://image.tmdb.org/t/p/w500{data['poster_path']}" if data.get('poster_path') else None)
         if not poster_url: return None
@@ -310,12 +310,30 @@ def generate_image(data):
 async def start_cmd(client, message):
     user_conversations.pop(message.from_user.id, None)
     await message.reply_text(
-        "🎬 **Movie & Series Bot (Updated)**\n\n"
+        "🎬 **Movie & Series Bot**\n\n"
         "⚡ `/post <Name>` - Create Post\n"
-        "⚡ `/post <Link>` - By TMDB/IMDb Link\n"
-        "⚙️ `/setadlink <URL>` - Set Ad Link for Timer\n\n"
-        "ℹ️ *Includes Blogger Instruction Box*"
+        "⚡ `/post <Link>` - TMDB/IMDb Link\n"
+        "🛠 `/mysettings` - View Your Settings\n"
+        "⚙️ `/setadlink <URL>` - Set Ad Link"
     )
+
+# ---- NEW: MY SETTINGS COMMAND ----
+@bot.on_message(filters.command("mysettings") & filters.private)
+async def mysettings_cmd(client, message):
+    uid = message.from_user.id
+    
+    # ইউজার কী সেট করেছে তা চেক করা
+    my_ad_link = user_ad_links.get(uid, "❌ Not Set (Default)")
+    
+    text = (
+        f"⚙️ **MY CURRENT SETTINGS**\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"👤 **User ID:** `{uid}`\n\n"
+        f"🔗 **Ad Link (Timer):**\n`{my_ad_link}`\n\n"
+        f"💡 **To Change:**\n"
+        f"• `/setadlink <url>` - To update ad link."
+    )
+    await message.reply_text(text, disable_web_page_preview=True)
 
 @bot.on_message(filters.command("setadlink") & filters.private)
 async def set_ad(client, message):
@@ -324,9 +342,9 @@ async def set_ad(client, message):
         if link.startswith("http"):
             user_ad_links[message.from_user.id] = link
             save_json(USER_AD_LINKS_FILE, user_ad_links)
-            await message.reply_text("✅ **Ad Link Saved!**")
+            await message.reply_text("✅ **Ad Link Saved!**\nCheck with `/mysettings`")
         else:
-            await message.reply_text("⚠️ Invalid Link.")
+            await message.reply_text("⚠️ Invalid Link. Must start with http/https.")
     else:
         await message.reply_text("⚠️ Usage: `/setadlink https://your-ad.com`")
 
@@ -363,7 +381,7 @@ async def on_select(client, cb):
         await cb.message.edit_text("❌ Error fetching details.")
 
 # ---- CONVERSATION HANDLER ----
-@bot.on_message(filters.private & ~filters.command(["start", "post", "setadlink"]))
+@bot.on_message(filters.private & ~filters.command(["start", "post", "setadlink", "mysettings"]))
 async def text_handler(client, message):
     uid = message.from_user.id
     if uid not in user_conversations: return
@@ -419,7 +437,6 @@ async def generate_final_post(client, uid, message):
     convo = user_conversations[uid]
     await message.edit_text("⏳ Generating HTML & Image...")
     
-    # Run Image Gen in separate thread
     loop = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(None, generate_image, convo["details"])
     
