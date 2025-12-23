@@ -7,7 +7,7 @@ import json
 import asyncio
 import logging
 import aiohttp
-import requests # শুধুমাত্র ইমেজ প্রসেসিংয়ের জন্য থ্রেডের ভেতরে ব্যবহার হবে
+import requests # শুধুমাত্র ইমেজ জেনারেশন থ্রেডের জন্য
 from threading import Thread
 
 # --- Third-party Library Imports ---
@@ -101,7 +101,7 @@ try:
     FONT_REGULAR = ImageFont.truetype("Poppins-Regular.ttf", 24)
     FONT_SMALL = ImageFont.truetype("Poppins-Regular.ttf", 18)
 except:
-    logger.warning("Fonts not found, using default.")
+    logger.warning("⚠️ Fonts not found, using default system fonts.")
     FONT_BOLD = FONT_REGULAR = FONT_SMALL = ImageFont.load_default()
 
 # ---- TMDB FUNCTIONS (ASYNC) ----
@@ -138,92 +138,99 @@ async def create_paste_link(content):
         return link.strip()
     return None
 
-# ---- HTML GENERATOR (WITH BENGALI INSTRUCTION BOX) ----
+# ---- HTML GENERATOR (FIXED BUTTON VISIBILITY & INSTRUCTION) ----
 def generate_html_code(data, links, ad_link):
     title = data.get("title") or data.get("name")
     overview = data.get("overview", "")
     poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else ""
     
-    # ইউজার ইন্সট্রাকশন বক্স (CSS সহ)
-    instruction_html = """
+    # 1. CSS Styles (বটনগুলো সুন্দর এবং লুকানো রাখার জন্য)
+    style_html = """
     <style>
+        .dl-container { font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; }
         .dl-instruction-box {
-            background-color: #fff8e1;
-            border-left: 5px solid #ffc107;
-            padding: 15px;
-            margin: 20px 0;
-            border-radius: 5px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            color: #333;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            background-color: #fff8e1; border-left: 5px solid #ffc107; padding: 15px; margin: 20px 0;
+            border-radius: 5px; color: #333; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
-        .dl-instruction-title {
-            font-weight: bold;
-            font-size: 18px;
-            margin-bottom: 10px;
-            color: #d32f2f;
-            display: flex;
-            align-items: center;
+        .dl-instruction-title { font-weight: bold; font-size: 18px; margin-bottom: 10px; color: #d32f2f; }
+        .dl-highlight { background-color: #ffe0b2; padding: 0 5px; border-radius: 3px; font-weight: bold; }
+        
+        .dl-download-block { margin-bottom: 20px; text-align: center; border: 1px solid #eee; padding: 10px; border-radius: 8px; }
+        
+        .dl-download-button {
+            background: #007bff; color: white; border: none; padding: 12px 25px; width: 100%;
+            border-radius: 5px; font-size: 16px; cursor: pointer; font-weight: bold;
+            transition: background 0.3s;
         }
-        .dl-steps {
-            margin: 0;
-            padding-left: 20px;
+        .dl-download-button:hover { background: #0056b3; }
+        
+        .dl-timer-display {
+            display: none;
+            background: #f8d7da; color: #721c24; padding: 10px; border-radius: 5px;
+            font-weight: bold; margin-top: 10px;
         }
-        .dl-steps li {
-            margin-bottom: 8px;
-            font-size: 15px;
-            line-height: 1.4;
+        
+        /* REAL LINK HIDDEN BY DEFAULT */
+        .dl-real-download-link {
+            display: none !important; /* শুরুতে অবশ্যই লুকানো থাকবে */
+            background: #28a745; color: white !important; text-decoration: none; padding: 12px 25px;
+            text-align: center; border-radius: 5px; margin-top: 10px; font-weight: bold;
         }
-        .dl-highlight {
-            background-color: #ffe0b2;
-            padding: 0 5px;
-            border-radius: 3px;
-            font-weight: bold;
-        }
+        .dl-real-download-link:hover { background: #218838; }
     </style>
+    """
 
+    # 2. Instruction Box HTML
+    instruction_html = """
     <div class="dl-instruction-box">
         <div class="dl-instruction-title">⚠️ ডাউনলোড করার নিয়মাবলী:</div>
-        <ul class="dl-steps">
+        <ul style="margin:0; padding-left:20px;">
             <li>১️⃣ প্রথমে আপনার পছন্দের <b>Download</b> বাটনে ক্লিক করুন।</li>
-            <li>২️⃣ একটি <span class="dl-highlight">বিজ্ঞাপন (Ad)</span> ওপেন হবে, সেটি কেটে দিন বা ব্যাক করুন।</li>
+            <li>২️⃣ একটি <span class="dl-highlight">বিজ্ঞাপন (Ad)</span> ওপেন হবে, সেটি কেটে দিন।</li>
             <li>৩️⃣ আবার একই বাটনে ক্লিক করুন, তখন <span class="dl-highlight">১০ সেকেন্ডের টাইমার</span> শুরু হবে।</li>
-            <li>৪️⃣ সময় শেষ হলে <b>Go to Link</b> বা <b>Get Link</b> বাটন আসবে, সেখানে ক্লিক করলেই ফাইল পেয়ে যাবেন।</li>
+            <li>৪️⃣ সময় শেষ হলে <b>Go to Link</b> বাটন আসবে, সেখানে ক্লিক করুন।</li>
         </ul>
     </div>
     """
 
-    # লিংক জেনারেশন
+    # 3. Link Logic (Loop)
     links_html = ""
     for link in links:
         links_html += f"""
-        <div class="dl-download-block" style="margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 8px;">
-            <button class="dl-download-button" data-url="{link['url']}" data-click-count="0" 
-                style="background: #007bff; color: white; border: none; padding: 10px 20px; width: 100%; border-radius: 5px; font-size: 16px; cursor: pointer;">
+        <div class="dl-download-block">
+            <!-- Main Button -->
+            <button class="dl-download-button" data-url="{link['url']}" data-click-count="0">
                 ⬇️ {link['label']}
             </button>
-            <div class="dl-timer-display" style="display:none; color:red; font-weight:bold; margin-top:10px; text-align:center;">
+            
+            <!-- Timer Display -->
+            <div class="dl-timer-display">
                 ⏳ Please Wait: <span class="timer-count">10</span>s
             </div>
-            <a href="#" class="dl-real-download-link" target="_blank" 
-                style="display:none; background: #28a745; color: white; text-decoration: none; padding: 10px 20px; display: block; text-align: center; border-radius: 5px; margin-top: 10px; font-weight: bold;">
-                ✅ Get Link
+            
+            <!-- Real Link (Hidden initially) -->
+            <a href="#" class="dl-real-download-link" target="_blank">
+                ✅ Go to Link ({link['label']})
             </a>
         </div>"""
 
-    # ফাইনাল HTML
+    # 4. Final Structure & Script
     return f"""
-    <!-- Post Generated by Bot -->
-    <div style="text-align:center; font-family: sans-serif;">
-        <img src="{poster}" style="max-width:100%; width:250px; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
-        <h2 style="color: #333; margin-top: 15px;">{title}</h2>
-        <p style="text-align: left; color: #555; line-height: 1.6;">{overview}</p>
-    </div>
+    <!-- Bot Generated Post -->
+    {style_html}
+    
+    <div class="dl-container">
+        <div style="text-align:center;">
+            <img src="{poster}" style="max-width:100%; width:250px; border-radius:10px; box-shadow: 0 4px 8px rgba(0,0,0,0.2);">
+            <h2 style="color: #333; margin-top: 15px;">{title}</h2>
+            <p style="text-align: left; color: #555;">{overview}</p>
+        </div>
 
-    {instruction_html}
+        {instruction_html}
 
-    <div id="dl-container">
-        {links_html}
+        <div id="dl-container">
+            {links_html}
+        </div>
     </div>
 
     <script>
@@ -232,35 +239,43 @@ def generate_html_code(data, links, ad_link):
     document.querySelectorAll('.dl-download-button').forEach(btn => {{
         btn.onclick = function() {{
             let count = parseInt(this.getAttribute('data-click-count'));
+            
             let timerDisplay = this.nextElementSibling;
             let realLink = timerDisplay.nextElementSibling;
             let timerSpan = timerDisplay.querySelector('.timer-count');
 
             if(count === 0) {{
+                // First Click: Open Ad
                 window.open(AD_LINK, '_blank');
                 this.setAttribute('data-click-count', '1');
                 this.innerText = "🔄 Click Again to Start Timer";
                 this.style.background = "#ff9800";
             }} else {{
-                this.style.display = 'none';
+                // Second Click: Start Timer
+                this.style.display = 'none'; 
                 timerDisplay.style.display = 'block';
+                
                 let timeLeft = 10;
                 timerSpan.innerText = timeLeft;
+                
                 let interval = setInterval(() => {{
                     timeLeft--;
                     timerSpan.innerText = timeLeft;
+                    
                     if(timeLeft <= 0) {{
                         clearInterval(interval);
                         timerDisplay.style.display = 'none';
+                        
+                        // Show Real Link
                         realLink.href = this.getAttribute('data-url');
-                        realLink.style.display = 'block';
+                        realLink.style.setProperty('display', 'block', 'important'); // Force Show
                     }}
                 }}, 1000);
             }}
         }}
     }});
     </script>
-    <!-- End of Post -->
+    <!-- Bot Generated Post End -->
     """
 
 # ---- IMAGE & CAPTION GENERATOR ----
@@ -278,7 +293,7 @@ def generate_formatted_caption(data):
     return caption
 
 def generate_image(data):
-    # Runs in a separate thread (blocking code allowed here)
+    # Runs in a separate thread (safe for blocking code)
     try:
         poster_url = data.get('manual_poster_url') or (f"https://image.tmdb.org/t/p/w500{data['poster_path']}" if data.get('poster_path') else None)
         if not poster_url: return None
@@ -297,7 +312,7 @@ def generate_image(data):
                 backdrop = backdrop.filter(ImageFilter.GaussianBlur(4))
                 bg_img = Image.alpha_composite(backdrop, Image.new('RGBA', (1280, 720), (0, 0, 0, 150)))
             except:
-                pass # Backdrop fail করলে কালো ব্যাকগ্রাউন্ড থাকবে
+                pass # Backdrop fail
 
         bg_img.paste(poster_img, (50, 60), poster_img)
         draw = ImageDraw.Draw(bg_img)
@@ -331,12 +346,12 @@ def generate_image(data):
 async def start_cmd(client, message):
     user_conversations.pop(message.from_user.id, None)
     await message.reply_text(
-        "🎬 **Movie & Series Bot**\n\n"
+        "🎬 **Movie & Series Bot (Final v3)**\n\n"
         "⚡ `/post <Name>` - Create Post\n"
         "⚡ `/post <Link>` - By TMDB/IMDb Link\n"
-        "🛠 `/mysettings` - View Your Settings\n"
+        "🛠 `/mysettings` - View Settings\n"
         "⚙️ `/setadlink <URL>` - Set Ad Link\n\n"
-        "ℹ️ *Includes Bengali Instruction Box*"
+        "✅ **Features:** Hidden Link Button, Bengali Instructions, Fast."
     )
 
 @bot.on_message(filters.command("mysettings") & filters.private)
@@ -350,7 +365,7 @@ async def mysettings_cmd(client, message):
         f"👤 **User ID:** `{uid}`\n\n"
         f"🔗 **Ad Link (Timer):**\n`{my_ad_link}`\n\n"
         f"💡 **To Change:**\n"
-        f"• `/setadlink <url>` - To update ad link."
+        f"• `/setadlink <url>`"
     )
     await message.reply_text(text, disable_web_page_preview=True)
 
@@ -445,11 +460,11 @@ async def text_handler(client, message):
         else:
             await message.reply_text("⚠️ Invalid URL. Try again.")
 
-# ---- CRITICAL FIX: RSPLIT ----
+# ---- FIXED CALLBACK LOGIC (RSPLIT) ----
 @bot.on_callback_query(filters.regex("^lnk_"))
 async def link_cb(client, cb):
     try:
-        # RSPLIT ব্যবহার করা হয়েছে যাতে শেষের অংশটুকুই শুধু আলাদা হয়
+        # rsplit ব্যবহার করা হয়েছে যাতে _ এর সমস্যা না হয়
         action, uid_str = cb.data.rsplit("_", 1)
         uid = int(uid_str)
     except Exception as e:
@@ -475,7 +490,7 @@ async def generate_final_post(client, uid, message):
     convo = user_conversations[uid]
     await message.edit_text("⏳ Generating HTML & Image (Please Wait)...")
     
-    # Run Image Generation in Thread (Non-blocking)
+    # Image Generation (Async Execution)
     loop = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(None, generate_image, convo["details"])
     
@@ -487,21 +502,20 @@ async def generate_final_post(client, uid, message):
     
     btns = [[InlineKeyboardButton("📄 Get Blogger Code", callback_data=f"get_code_{uid}")]]
     
-    # Send Final Post
     try:
         if img_io:
             await client.send_photo(message.chat.id, img_io, caption=caption, reply_markup=InlineKeyboardMarkup(btns))
-            await message.delete() # Loading message ডিলিট করা
+            await message.delete()
         else:
             await message.edit_text(caption, reply_markup=InlineKeyboardMarkup(btns))
     except Exception as e:
-        logger.error(f"Sending Post Error: {e}")
-        await message.edit_text("❌ Error sending photo. Try again.")
+        logger.error(f"Post Send Error: {e}")
+        await message.edit_text("❌ Error sending photo.")
 
 @bot.on_callback_query(filters.regex("^get_code_"))
 async def get_code(client, cb):
     try:
-        _, _, uid_str = cb.data.rsplit("_", 2) # get_code_123
+        _, _, uid_str = cb.data.rsplit("_", 2)
         uid = int(uid_str)
     except:
         return await cb.answer("Error.", show_alert=True)
@@ -521,7 +535,7 @@ async def get_code(client, cb):
     else:
         file = io.BytesIO(data["final"]["html"].encode())
         file.name = "blogger_post.html"
-        await client.send_document(cb.message.chat.id, file, caption="⚠️ Dpaste failed. Here is the file.")
+        await client.send_document(cb.message.chat.id, file, caption="⚠️ Link failed. File attached.")
 
 # ---- ENTRY POINT ----
 if __name__ == "__main__":
