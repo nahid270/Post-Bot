@@ -183,8 +183,8 @@ def generate_html_code(data, links, ad_link):
         poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else ""
     
     # Button Images (Hosted URLs)
-    BTN_DOWNLOAD = "https://i.ibb.co/3k5M4qL/download-yellow-btn.png" # হলুদ বাটন
-    BTN_TELEGRAM = "https://i.ibb.co/z5054jL/telegram-join-btn.png"   # টেলিগ্রাম বাটন
+    BTN_DOWNLOAD = "https://i.ibb.co/QFZd9Yhz/photo-2025-12-23-12-37-08-7587031527628734468.jpg" # হলুদ বাটন
+    BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   # টেলিগ্রাম বাটন
 
     style_html = """
     <style>
