@@ -93,7 +93,7 @@ def run_flask():
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive_pinger():
-    # প্রতি ১০ মিনিটে নিজেকে পিং করবে যাতে সার্ভার না ঘুমায়
+    # প্রতি ১০ মিনিটে নিজেকে পিং করবে
     while True:
         try:
             requests.get("http://localhost:8080")
@@ -171,7 +171,7 @@ async def create_paste_link(content):
         return link.strip()
     return None
 
-# ---- HTML GENERATOR (IMAGE BUTTONS VERSION) ----
+# ---- HTML GENERATOR (SMART BUTTONS LOGIC) ----
 def generate_html_code(data, links, ad_link):
     title = data.get("title") or data.get("name")
     overview = data.get("overview", "")
@@ -182,15 +182,15 @@ def generate_html_code(data, links, ad_link):
     else:
         poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else ""
     
-    # Button Images (Hosted URLs)
-    BTN_DOWNLOAD = "https://i.ibb.co/QFZd9Yhz/photo-2025-12-23-12-37-08-7587031527628734468.jpg" # হলুদ বাটন
-    BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   # টেলিগ্রাম বাটন
+    # --- BUTTON IMAGES (Hosted URLs) ---
+    BTN_DOWNLOAD = "https://i.ibb.co/QFZd9Yhz/photo-2025-12-23-12-37-08-7587031527628734468.jpg" 
+    BTN_WATCH = "https://i.ibb.co/j9vgfBvc/photo-2025-12-23-12-45-10-7587033593508003844.jpg" 
+    BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   
 
     style_html = """
     <style>
         .dl-container { font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; text-align: center; }
         
-        /* Instruction Box */
         .dl-instruction-box {
             background-color: #fff8e1; border-left: 5px solid #ffc107; padding: 15px; margin: 20px 0;
             border-radius: 5px; color: #333; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
@@ -198,16 +198,13 @@ def generate_html_code(data, links, ad_link):
         .dl-instruction-title { font-weight: bold; font-size: 18px; margin-bottom: 10px; color: #d32f2f; }
         .dl-highlight { background-color: #ffe0b2; padding: 0 5px; border-radius: 3px; font-weight: bold; }
         
-        /* Download Block */
         .dl-download-block { margin-bottom: 25px; padding: 10px; border-bottom: 1px dashed #ddd; }
         
-        /* Link Label (e.g. 720p) */
         .dl-link-label {
             font-size: 18px; font-weight: bold; color: #333; margin-bottom: 8px;
             display: block; text-transform: uppercase; letter-spacing: 1px;
         }
 
-        /* Image Button Style */
         .dl-img-btn {
             width: 220px; max-width: 80%; cursor: pointer;
             transition: transform 0.1s ease, filter 0.2s;
@@ -216,14 +213,12 @@ def generate_html_code(data, links, ad_link):
         .dl-img-btn:hover { transform: scale(1.05); filter: brightness(1.1); }
         .dl-img-btn:active { transform: scale(0.95); }
 
-        /* Timer */
         .dl-timer-display {
             display: none;
             background: #f8d7da; color: #721c24; padding: 12px; border-radius: 5px;
             font-weight: bold; margin-top: 10px; font-size: 18px; border: 1px solid #f5c6cb;
         }
         
-        /* Real Link */
         .dl-real-download-link {
             display: none !important;
             background: linear-gradient(45deg, #28a745, #218838); 
@@ -231,43 +226,42 @@ def generate_html_code(data, links, ad_link):
             text-align: center; border-radius: 50px; margin-top: 15px; 
             font-weight: bold; font-size: 18px; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.4);
         }
-        .dl-real-download-link:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(40, 167, 69, 0.6); }
-
-        /* Telegram Button Area */
-        .tg-join-section { margin-top: 40px; border-top: 2px solid #eee; padding-top: 20px; }
     </style>
     """
 
     instruction_html = """
     <div class="dl-instruction-box">
-        <div class="dl-instruction-title">⚠️ ডাউনলোড করার নিয়মাবলী:</div>
+        <div class="dl-instruction-title">⚠️ ডাউনলোড/Watch করার নিয়মাবলী:</div>
         <ul style="margin:0; padding-left:20px;">
-            <li>১️⃣ প্রথমে নিচের <b>Download Now</b> ইমেজে ক্লিক করুন।</li>
+            <li>১️⃣ প্রথমে নিচের বাটনে ক্লিক করুন।</li>
             <li>২️⃣ একটি <span class="dl-highlight">বিজ্ঞাপন (Ad)</span> ওপেন হবে, সেটি কেটে দিন।</li>
-            <li>৩️⃣ আবার ইমেজে ক্লিক করুন, <span class="dl-highlight">১০ সেকেন্ড টাইমার</span> শুরু হবে।</li>
-            <li>৪️⃣ সময় শেষ হলে <b>Go to Link</b> বাটন আসবে।</li>
+            <li>৩️⃣ আবার বাটনে ক্লিক করুন, <span class="dl-highlight">১০ সেকেন্ড টাইমার</span> শুরু হবে।</li>
+            <li>৪️⃣ সময় শেষ হলে মেইন লিংকটি পেয়ে যাবেন।</li>
         </ul>
     </div>
     """
 
     links_html = ""
     for link in links:
+        # --- SMART LOGIC ---
+        label_lower = link['label'].lower()
+        if "watch" in label_lower or "play" in label_lower or "online" in label_lower:
+            current_btn_img = BTN_WATCH
+        else:
+            current_btn_img = BTN_DOWNLOAD
+
         links_html += f"""
         <div class="dl-download-block">
-            <!-- Label (e.g. 720p) -->
             <span class="dl-link-label">📂 {link['label']}</span>
             
-            <!-- Image Button -->
-            <img src="{BTN_DOWNLOAD}" class="dl-img-btn dl-trigger-btn" data-url="{link['url']}" data-click-count="0" alt="Download Now">
+            <img src="{current_btn_img}" class="dl-img-btn dl-trigger-btn" data-url="{link['url']}" data-click-count="0">
             
-            <!-- Timer Display -->
             <div class="dl-timer-display">
                 ⏳ Please Wait: <span class="timer-count">10</span>s
             </div>
             
-            <!-- Real Link -->
             <a href="#" class="dl-real-download-link" target="_blank">
-                ✅ Click Here to Download
+                ✅ Go to Link
             </a>
         </div>"""
 
@@ -287,9 +281,8 @@ def generate_html_code(data, links, ad_link):
             {links_html}
         </div>
 
-        <!-- Extra: Telegram Join Button -->
-        <div class="tg-join-section">
-            <a href="https://t.me/+6hvCoblt6CxhZjhl" target="_blank">
+        <div class="tg-join-section" style="margin-top: 40px; border-top: 2px solid #eee; padding-top: 20px;">
+            <a href="https://t.me/YOUR_CHANNEL_LINK_HERE" target="_blank">
                 <img src="{BTN_TELEGRAM}" style="width: 250px; max-width: 90%; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,136,204,0.3);">
             </a>
             <p style="font-size: 12px; color: #888; margin-top: 5px;">Join our Telegram for more updates!</p>
@@ -308,23 +301,18 @@ def generate_html_code(data, links, ad_link):
             let timerSpan = timerDisplay.querySelector('.timer-count');
 
             if(count === 0) {{
-                // First Click: Open Ad
                 window.open(AD_LINK, '_blank');
                 this.setAttribute('data-click-count', '1');
                 this.style.opacity = "0.7";
                 setTimeout(() => {{ this.style.opacity = "1"; }}, 500);
             }} else {{
-                // Second Click: Start Timer
                 this.style.display = 'none'; 
                 timerDisplay.style.display = 'block';
-                
                 let timeLeft = 10;
                 timerSpan.innerText = timeLeft;
-                
                 let interval = setInterval(() => {{
                     timeLeft--;
                     timerSpan.innerText = timeLeft;
-                    
                     if(timeLeft <= 0) {{
                         clearInterval(interval);
                         timerDisplay.style.display = 'none';
@@ -365,7 +353,6 @@ def generate_formatted_caption(data):
 
 def generate_image(data):
     try:
-        # Determine Poster URL
         if data.get('manual_poster_url'):
             poster_url = data.get('manual_poster_url')
         else:
@@ -373,14 +360,11 @@ def generate_image(data):
         
         if not poster_url: return None
 
-        # Download Poster
         poster_bytes = requests.get(poster_url, timeout=10).content
         poster_img = Image.open(io.BytesIO(poster_bytes)).convert("RGBA").resize((400, 600))
         
-        # Create Background
         bg_img = Image.new('RGBA', (1280, 720), (10, 10, 20))
         
-        # Determine Backdrop
         backdrop = None
         if data.get('backdrop_path') and not data.get('is_manual'):
             try:
@@ -389,18 +373,15 @@ def generate_image(data):
                 backdrop = Image.open(io.BytesIO(bd_bytes)).convert("RGBA").resize((1280, 720))
             except: pass
         
-        # Use blurred poster as backdrop if not available
         if not backdrop:
             backdrop = poster_img.resize((1280, 720))
             
         backdrop = backdrop.filter(ImageFilter.GaussianBlur(10))
         bg_img = Image.alpha_composite(backdrop, Image.new('RGBA', (1280, 720), (0, 0, 0, 150))) 
 
-        # Paste Poster
         bg_img.paste(poster_img, (50, 60), poster_img)
         draw = ImageDraw.Draw(bg_img)
         
-        # Text Drawing
         title = data.get("title") or data.get("name")
         year = (data.get("release_date") or data.get("first_air_date") or "----")[:4]
         if data.get('is_manual'): year = ""
@@ -440,7 +421,7 @@ except Exception as e:
 async def start_cmd(client, message):
     user_conversations.pop(message.from_user.id, None)
     await message.reply_text(
-        "🎬 **Movie & Series Bot (Final v5)**\n\n"
+        "🎬 **Movie & Series Bot (Ultimate v6)**\n\n"
         "⚡ `/post <Link or Name>` - Auto Post (TMDB/IMDb)\n"
         "✍️ `/manual` - Custom Manual Post\n"
         "🛠 `/mysettings` - View Settings\n"
@@ -608,14 +589,14 @@ async def link_cb(client, cb):
     
     if action == "lnk_yes":
         user_conversations[uid]["state"] = "wait_link_name"
-        await cb.message.edit_text("📝 বাটনের নাম লিখুন (Example: 720p Download):")
+        await cb.message.edit_text("📝 বাটনের নাম লিখুন (Ex: '720p Download' or 'Watch Online'):")
     else:
         await generate_final_post(client, uid, cb.message)
 
 async def generate_final_post(client, uid, message):
     if uid not in user_conversations: return await message.edit_text("❌ Session expired.")
     convo = user_conversations[uid]
-    await message.edit_text("⏳ Generating HTML & Image (With Image Buttons)...")
+    await message.edit_text("⏳ Generating HTML & Image (With Smart Buttons)...")
     
     loop = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(None, generate_image, convo["details"])
@@ -659,12 +640,10 @@ async def get_code(client, cb):
 
 # ---- ENTRY POINT ----
 if __name__ == "__main__":
-    # Start Flask
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
     
-    # Start Self-Pinger (No Sleep)
     ping_thread = Thread(target=keep_alive_pinger)
     ping_thread.daemon = True
     ping_thread.start()
