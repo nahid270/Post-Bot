@@ -4,6 +4,7 @@ import os
 import io
 import re
 import json
+import time
 import asyncio
 import logging
 import aiohttp
@@ -43,7 +44,7 @@ user_conversations = {}
 user_ad_links = {}
 
 USER_AD_LINKS_FILE = "user_ad_links.json"
-DEFAULT_AD_LINK = "https://www.google.com"
+DEFAULT_AD_LINK = "https://www.google.com" # Default Ad Link
 
 # ---- ASYNC HTTP SESSION ----
 async def fetch_url(url, method="GET", data=None, headers=None, json_data=None):
@@ -81,18 +82,25 @@ def load_json(filename):
 # Load saved data
 user_ad_links = load_json(USER_AD_LINKS_FILE)
 
-# ---- FLASK KEEP-ALIVE ----
+# ---- FLASK KEEP-ALIVE (RENDER SLEEP FIX) ----
 app = Flask(__name__)
-@app.route('/')
-def home(): return "🤖 Bot is Running Smoothly!"
-def run_flask(): app.run(host='0.0.0.0', port=8080)
 
-# ---- BOT INIT ----
-try:
-    bot = Client("moviebot", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
-except Exception as e:
-    logger.critical(f"Bot Init Error: {e}")
-    exit(1)
+@app.route('/')
+def home():
+    return "🤖 Bot is Running! Status: Online."
+
+def run_flask():
+    # Runs on Port 8080
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive_pinger():
+    # Self-ping mechanism to prevent sleeping
+    while True:
+        try:
+            requests.get("http://localhost:8080")
+            time.sleep(600) # Ping every 10 minutes
+        except:
+            time.sleep(600)
 
 # ---- FONTS ----
 try:
@@ -117,7 +125,20 @@ def upload_to_catbox(file_path):
         logger.error(f"Upload Error: {e}")
     return None
 
-# ---- TMDB FUNCTIONS (ASYNC) ----
+# ---- TMDB & LINK EXTRACTION FUNCTIONS ----
+def extract_tmdb_id(text):
+    # Check for TMDB Link
+    tmdb_match = re.search(r'themoviedb\.org/(movie|tv)/(\d+)', text)
+    if tmdb_match:
+        return tmdb_match.group(1), tmdb_match.group(2) # type, id
+    
+    # Check for IMDb Link (Anywhere in text)
+    imdb_match = re.search(r'(tt\d+)', text)
+    if imdb_match:
+        return "imdb", imdb_match.group(1)
+        
+    return None, None
+
 async def search_tmdb(query):
     try:
         year = None
@@ -273,9 +294,8 @@ def generate_html_code(data, links, ad_link):
 def generate_formatted_caption(data):
     title = data.get("title") or data.get("name") or "N/A"
     
-    # Manual data handling
     if data.get('is_manual'):
-        year = "Manual"
+        year = "Custom"
         rating = "⭐ N/A"
         genres = "Custom"
         language = "N/A"
@@ -313,19 +333,19 @@ def generate_image(data):
         
         # Determine Backdrop
         backdrop = None
-        if data.get('backdrop_path'):
+        if data.get('backdrop_path') and not data.get('is_manual'):
             try:
                 bd_url = f"https://image.tmdb.org/t/p/w1280{data['backdrop_path']}"
                 bd_bytes = requests.get(bd_url, timeout=10).content
                 backdrop = Image.open(io.BytesIO(bd_bytes)).convert("RGBA").resize((1280, 720))
             except: pass
         
-        # If no backdrop (or Manual mode), use blurred poster as backdrop
+        # Use blurred poster as backdrop if not available
         if not backdrop:
             backdrop = poster_img.resize((1280, 720))
             
         backdrop = backdrop.filter(ImageFilter.GaussianBlur(10))
-        bg_img = Image.alpha_composite(backdrop, Image.new('RGBA', (1280, 720), (0, 0, 0, 150))) # Dark overlay
+        bg_img = Image.alpha_composite(backdrop, Image.new('RGBA', (1280, 720), (0, 0, 0, 150))) 
 
         # Paste Poster
         bg_img.paste(poster_img, (50, 60), poster_img)
@@ -358,15 +378,22 @@ def generate_image(data):
         logger.error(f"Img Gen Error: {e}")
         return None
 
+# ---- BOT INIT ----
+try:
+    bot = Client("moviebot", api_id=int(API_ID), api_hash=API_HASH, bot_token=BOT_TOKEN)
+except Exception as e:
+    logger.critical(f"Bot Init Error: {e}")
+    exit(1)
+
 # ---- BOT COMMANDS ----
 
 @bot.on_message(filters.command("start") & filters.private)
 async def start_cmd(client, message):
     user_conversations.pop(message.from_user.id, None)
     await message.reply_text(
-        "🎬 **Movie & Series Bot (Final v3)**\n\n"
-        "⚡ `/post <Name>` - Auto Post (TMDB)\n"
-        "✍️ `/manual` - Manual Post (Custom)\n"
+        "🎬 **Movie & Series Bot (Final v4)**\n\n"
+        "⚡ `/post <Link or Name>` - Auto Post (TMDB/IMDb)\n"
+        "✍️ `/manual` - Custom Manual Post\n"
         "🛠 `/mysettings` - View Settings\n"
         "⚙️ `/setadlink <URL>` - Set Ad Link\n\n"
     )
@@ -399,18 +426,42 @@ async def manual_post_cmd(client, message):
     }
     await message.reply_text("✍️ **Manual Post Started**\n\nপ্রথমে আপনার মুভি বা সিরিজের **টাইটেল (Title)** লিখুন:")
 
-# ---- AUTO POST COMMAND ----
+# ---- AUTO POST COMMAND (LINK + NAME) ----
 @bot.on_message(filters.command("post") & filters.private)
 async def post_cmd(client, message):
     if len(message.command) < 2:
-        return await message.reply_text("⚠️ Usage: `/post Avatar`")
+        return await message.reply_text("⚠️ Usage:\n`/post Avatar` (Search by Name)\n`/post https://...` (By TMDB/IMDb Link)")
     
-    query = message.text.split(" ", 1)[1]
-    msg = await message.reply_text(f"🔎 Searching for `{query}`...")
-    
+    query = message.text.split(" ", 1)[1].strip()
+    msg = await message.reply_text(f"🔎 Processing `{query}`...")
+
+    # 1. Check if it is a Direct Link
+    m_type, m_id = extract_tmdb_id(query)
+
+    if m_type and m_id:
+        if m_type == "imdb":
+            find_url = f"https://api.themoviedb.org/3/find/{m_id}?api_key={TMDB_API_KEY}&external_source=imdb_id"
+            data = await fetch_url(find_url)
+            results = data.get("movie_results", []) + data.get("tv_results", [])
+            if results:
+                m_type = results[0]['media_type']
+                m_id = results[0]['id']
+            else:
+                return await msg.edit_text("❌ IMDb ID not found in TMDB database.")
+
+        # Get Details Directly
+        details = await get_tmdb_details(m_type, m_id)
+        if not details: return await msg.edit_text("❌ Details not found from Link.")
+        
+        user_conversations[message.from_user.id] = {
+            "details": details, "links": [], "state": "wait_lang"
+        }
+        await msg.edit_text(f"✅ Found: **{details.get('title') or details.get('name')}**\n\n🗣️ Enter **Language** (e.g. Hindi):")
+        return
+
+    # 2. Search by Name
     results = await search_tmdb(query)
-    if not results:
-        return await msg.edit_text("❌ No results found.")
+    if not results: return await msg.edit_text("❌ No results found.")
     
     buttons = []
     for r in results:
@@ -424,6 +475,7 @@ async def on_select(client, cb):
     try:
         _, m_type, m_id = cb.data.split("_")
         details = await get_tmdb_details(m_type, m_id)
+        
         if not details: return await cb.message.edit_text("❌ Details not found.")
 
         user_conversations[cb.from_user.id] = {
@@ -433,7 +485,7 @@ async def on_select(client, cb):
     except Exception as e:
         logger.error(f"Select Error: {e}")
 
-# ---- CONVERSATION HANDLER (Merged Auto + Manual) ----
+# ---- CONVERSATION HANDLER ----
 @bot.on_message(filters.private & ~filters.command(["start", "post", "manual", "setadlink", "mysettings"]))
 async def text_handler(client, message):
     uid = message.from_user.id
@@ -443,7 +495,7 @@ async def text_handler(client, message):
     state = convo.get("state")
     text = message.text.strip() if message.text else ""
     
-    # --- MANUAL FLOW HANDLERS ---
+    # --- MANUAL FLOW ---
     if state == "manual_title":
         convo["details"]["title"] = text
         convo["state"] = "manual_plot"
@@ -455,32 +507,21 @@ async def text_handler(client, message):
         await message.reply_text("🖼️ এবার একটি **পোস্টার (Photo)** সেন্ড করুন:")
         
     elif state == "manual_poster":
-        if not message.photo:
-            return await message.reply_text("⚠️ দয়া করে একটি ছবি (Photo) পাঠান।")
-        
+        if not message.photo: return await message.reply_text("⚠️ দয়া করে একটি ছবি (Photo) পাঠান।")
         msg = await message.reply_text("⏳ Processing Image...")
         try:
-            # Download & Upload to Cloud
             photo_path = await message.download()
             img_url = upload_to_catbox(photo_path)
-            os.remove(photo_path) # Clean up
-            
+            os.remove(photo_path)
             if img_url:
                 convo["details"]["manual_poster_url"] = img_url
-                convo["state"] = "ask_links" # Jump to Link Section
-                
-                buttons = [
-                    [InlineKeyboardButton("➕ Add Links", callback_data=f"lnk_yes_{uid}")],
-                    [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]
-                ]
+                convo["state"] = "ask_links"
+                buttons = [[InlineKeyboardButton("➕ Add Links", callback_data=f"lnk_yes_{uid}")], [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]]
                 await msg.edit_text("✅ ছবি আপলোড হয়েছে!\n\n🔗 এবার ডাউনলোড লিংক অ্যাড করবেন?", reply_markup=InlineKeyboardMarkup(buttons))
-            else:
-                await msg.edit_text("❌ ইমেজ আপলোড ফেইল হয়েছে। আবার চেষ্টা করুন।")
-        except Exception as e:
-            logger.error(f"Manual Poster Error: {e}")
-            await msg.edit_text("❌ এরর হয়েছে।")
+            else: await msg.edit_text("❌ ইমেজ আপলোড ফেইল হয়েছে।")
+        except: await msg.edit_text("❌ এরর হয়েছে।")
 
-    # --- AUTO FLOW HANDLERS ---
+    # --- AUTO FLOW ---
     elif state == "wait_lang":
         convo["details"]["custom_language"] = text
         convo["state"] = "wait_quality"
@@ -489,13 +530,10 @@ async def text_handler(client, message):
     elif state == "wait_quality":
         convo["details"]["custom_quality"] = text
         convo["state"] = "ask_links"
-        buttons = [
-            [InlineKeyboardButton("➕ Add Links", callback_data=f"lnk_yes_{uid}")],
-            [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]
-        ]
+        buttons = [[InlineKeyboardButton("➕ Add Links", callback_data=f"lnk_yes_{uid}")], [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]]
         await message.reply_text("🔗 Add Download Links?", reply_markup=InlineKeyboardMarkup(buttons))
         
-    # --- COMMON LINK HANDLERS ---
+    # --- LINK HANDLERS ---
     elif state == "wait_link_name":
         convo["temp_name"] = text
         convo["state"] = "wait_link_url"
@@ -505,10 +543,7 @@ async def text_handler(client, message):
         if text.startswith("http"):
             convo["links"].append({"label": convo["temp_name"], "url": text})
             convo["state"] = "ask_links"
-            buttons = [
-                [InlineKeyboardButton("➕ Add Another", callback_data=f"lnk_yes_{uid}")],
-                [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]
-            ]
+            buttons = [[InlineKeyboardButton("➕ Add Another", callback_data=f"lnk_yes_{uid}")], [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]]
             await message.reply_text(f"✅ Added! Total: {len(convo['links'])}", reply_markup=InlineKeyboardMarkup(buttons))
         else:
             await message.reply_text("⚠️ Invalid URL. Try again.")
@@ -533,7 +568,6 @@ async def generate_final_post(client, uid, message):
     convo = user_conversations[uid]
     await message.edit_text("⏳ Generating HTML & Image...")
     
-    # Image Generation
     loop = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(None, generate_image, convo["details"])
     
@@ -574,9 +608,17 @@ async def get_code(client, cb):
         file.name = "blogger_post.html"
         await client.send_document(cb.message.chat.id, file, caption="⚠️ Link failed. File attached.")
 
+# ---- ENTRY POINT ----
 if __name__ == "__main__":
+    # Start Flask in separate thread
     flask_thread = Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
+    
+    # Start Self-Pinger (To prevent sleeping)
+    ping_thread = Thread(target=keep_alive_pinger)
+    ping_thread.daemon = True
+    ping_thread.start()
+    
     print("🚀 Bot Started Successfully!")
     bot.run()
