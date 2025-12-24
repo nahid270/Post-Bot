@@ -41,10 +41,14 @@ if not all([BOT_TOKEN, API_ID, API_HASH, TMDB_API_KEY]):
 
 # ---- GLOBAL STATE ----
 user_conversations = {}
-user_ad_links = {}
+user_ad_links = {} # Stores List of Links per user
 
 USER_AD_LINKS_FILE = "user_ad_links.json"
-DEFAULT_AD_LINK = "https://www.google.com" # ডিফল্ট অ্যাড লিংক
+# ডিফল্ট অ্যাড লিংকস (এখানে আপনার হাই পেমেন্ট ডাইরেক্ট লিংকগুলো রাখুন)
+DEFAULT_AD_LINKS = [
+    "https://www.google.com", 
+    "https://www.bing.com"
+] 
 
 # ---- ASYNC HTTP SESSION ----
 async def fetch_url(url, method="GET", data=None, headers=None, json_data=None):
@@ -74,7 +78,15 @@ def load_json(filename):
     if os.path.exists(filename):
         try:
             with open(filename, "r") as f:
-                return {int(k): v for k, v in json.load(f).items()}
+                data = json.load(f)
+                # Ensure existing data is compatible (convert string to list if old version)
+                processed_data = {}
+                for k, v in data.items():
+                    if isinstance(v, str):
+                        processed_data[int(k)] = [v]
+                    else:
+                        processed_data[int(k)] = v
+                return processed_data
         except Exception as e:
             logger.error(f"Load JSON Error: {e}")
     return {}
@@ -82,7 +94,7 @@ def load_json(filename):
 # Load saved data
 user_ad_links = load_json(USER_AD_LINKS_FILE)
 
-# ---- FLASK KEEP-ALIVE (RENDER SLEEP FIX) ----
+# ---- FLASK KEEP-ALIVE ----
 app = Flask(__name__)
 
 @app.route('/')
@@ -93,7 +105,6 @@ def run_flask():
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive_pinger():
-    # প্রতি ১০ মিনিটে নিজেকে পিং করবে
     while True:
         try:
             requests.get("http://localhost:8080")
@@ -110,7 +121,7 @@ except:
     logger.warning("⚠️ Fonts not found, using default system fonts.")
     FONT_BOLD = FONT_REGULAR = FONT_SMALL = ImageFont.load_default()
 
-# ---- HELPER: UPLOAD IMAGE TO CATBOX (For Manual Posts) ----
+# ---- HELPER: UPLOAD IMAGE TO CATBOX ----
 def upload_to_catbox(file_path):
     try:
         url = "https://catbox.moe/user/api.php"
@@ -124,18 +135,14 @@ def upload_to_catbox(file_path):
         logger.error(f"Upload Error: {e}")
     return None
 
-# ---- TMDB & LINK EXTRACTION FUNCTIONS ----
+# ---- TMDB & LINK EXTRACTION ----
 def extract_tmdb_id(text):
-    # Check for TMDB Link
     tmdb_match = re.search(r'themoviedb\.org/(movie|tv)/(\d+)', text)
     if tmdb_match:
-        return tmdb_match.group(1), tmdb_match.group(2) # type, id
-    
-    # Check for IMDb Link (Anywhere in text)
+        return tmdb_match.group(1), tmdb_match.group(2)
     imdb_match = re.search(r'(tt\d+)', text)
     if imdb_match:
         return "imdb", imdb_match.group(1)
-        
     return None, None
 
 async def search_tmdb(query):
@@ -159,30 +166,28 @@ async def get_tmdb_details(media_type, media_id):
     url = f"https://api.themoviedb.org/3/{media_type}/{media_id}?api_key={TMDB_API_KEY}&append_to_response=credits,similar"
     return await fetch_url(url)
 
-# ---- DPASTE FUNCTION (ASYNC) ----
+# ---- DPASTE FUNCTION ----
 async def create_paste_link(content):
     if not content: return None
     url = "https://dpaste.com/api/"
     data = {"content": content, "syntax": "html", "expiry_days": 14, "title": "Movie Post Code"}
     headers = {'User-Agent': 'Mozilla/5.0'}
-    
     link = await fetch_url(url, method="POST", data=data, headers=headers)
     if link and "dpaste.com" in link:
         return link.strip()
     return None
 
-# ---- HTML GENERATOR (SMART BUTTONS LOGIC) ----
-def generate_html_code(data, links, ad_link):
+# ---- HTML GENERATOR (MULTI-LINK LOGIC) ----
+def generate_html_code(data, links, ad_links_list):
     title = data.get("title") or data.get("name")
     overview = data.get("overview", "")
     
-    # Handle Manual vs TMDB Poster
     if data.get('manual_poster_url'):
         poster = data.get('manual_poster_url')
     else:
         poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else ""
     
-    # --- BUTTON IMAGES (Hosted URLs) ---
+    # --- BUTTON IMAGES ---
     BTN_DOWNLOAD = "https://i.ibb.co/QFZd9Yhz/photo-2025-12-23-12-37-08-7587031527628734468.jpg" 
     BTN_WATCH = "https://i.ibb.co/j9vgfBvc/photo-2025-12-23-12-45-10-7587033593508003844.jpg" 
     BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   
@@ -196,10 +201,8 @@ def generate_html_code(data, links, ad_link):
             border-radius: 5px; color: #333; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
         }
         .dl-instruction-title { font-weight: bold; font-size: 18px; margin-bottom: 10px; color: #d32f2f; }
-        .dl-highlight { background-color: #ffe0b2; padding: 0 5px; border-radius: 3px; font-weight: bold; }
         
         .dl-download-block { margin-bottom: 25px; padding: 10px; border-bottom: 1px dashed #ddd; }
-        
         .dl-link-label {
             font-size: 18px; font-weight: bold; color: #333; margin-bottom: 8px;
             display: block; text-transform: uppercase; letter-spacing: 1px;
@@ -233,22 +236,17 @@ def generate_html_code(data, links, ad_link):
     <div class="dl-instruction-box">
         <div class="dl-instruction-title">⚠️ ডাউনলোড/Watch করার নিয়মাবলী:</div>
         <ul style="margin:0; padding-left:20px;">
-            <li>১️⃣ প্রথমে নিচের বাটনে ক্লিক করুন।</li>
-            <li>২️⃣ একটি <span class="dl-highlight">বিজ্ঞাপন (Ad)</span> ওপেন হবে, সেটি কেটে দিন।</li>
-            <li>৩️⃣ আবার বাটনে ক্লিক করুন, <span class="dl-highlight">১০ সেকেন্ড টাইমার</span> শুরু হবে।</li>
-            <li>৪️⃣ সময় শেষ হলে মেইন লিংকটি পেয়ে যাবেন।</li>
+            <li>১️⃣ বাটনে ক্লিক করুন > একটি পেজ ওপেন হবে > সেটি কেটে দিন।</li>
+            <li>২️⃣ <b>আসল লিংক না আসা পর্যন্ত</b> ক্লিক করতে থাকুন।</li>
+            <li>৩️⃣ শেষে <b>১০ সেকেন্ড টাইমার</b> শেষ হলে লিংক পাবেন।</li>
         </ul>
     </div>
     """
 
     links_html = ""
     for link in links:
-        # --- SMART LOGIC ---
         label_lower = link['label'].lower()
-        if "watch" in label_lower or "play" in label_lower or "online" in label_lower:
-            current_btn_img = BTN_WATCH
-        else:
-            current_btn_img = BTN_DOWNLOAD
+        current_btn_img = BTN_WATCH if any(x in label_lower for x in ["watch", "play", "online"]) else BTN_DOWNLOAD
 
         links_html += f"""
         <div class="dl-download-block">
@@ -264,6 +262,59 @@ def generate_html_code(data, links, ad_link):
                 ✅ Go to Link
             </a>
         </div>"""
+
+    # --- JAVASCRIPT LOGIC UPDATE FOR MULTI-LINKS ---
+    js_ad_array = json.dumps(ad_links_list)
+
+    script_html = f"""
+    <script>
+    const AD_LINKS = {js_ad_array}; 
+    
+    document.querySelectorAll('.dl-trigger-btn').forEach(btn => {{
+        btn.onclick = function() {{
+            let count = parseInt(this.getAttribute('data-click-count'));
+            let totalAds = AD_LINKS.length;
+            
+            let timerDisplay = this.nextElementSibling;
+            let realLink = timerDisplay.nextElementSibling;
+            let timerSpan = timerDisplay.querySelector('.timer-count');
+
+            if(count < totalAds) {{
+                // Open Ad Link corresponding to count
+                window.open(AD_LINKS[count], '_blank');
+                
+                count++;
+                this.setAttribute('data-click-count', count);
+                
+                // Visual feedback to click again
+                this.style.opacity = "0.6";
+                setTimeout(() => {{ 
+                    this.style.opacity = "1"; 
+                    this.style.filter = "hue-rotate(" + (count * 45) + "deg)"; 
+                }}, 300);
+            }} 
+            else {{
+                // All Ads done, Start Timer
+                this.style.display = 'none'; 
+                timerDisplay.style.display = 'block';
+                let timeLeft = 10;
+                timerSpan.innerText = timeLeft;
+                
+                let interval = setInterval(() => {{
+                    timeLeft--;
+                    timerSpan.innerText = timeLeft;
+                    if(timeLeft <= 0) {{
+                        clearInterval(interval);
+                        timerDisplay.style.display = 'none';
+                        realLink.href = this.getAttribute('data-url');
+                        realLink.style.setProperty('display', 'block', 'important'); 
+                    }}
+                }}, 1000);
+            }}
+        }}
+    }});
+    </script>
+    """
 
     return f"""
     <!-- Bot Generated Post -->
@@ -288,42 +339,7 @@ def generate_html_code(data, links, ad_link):
             <p style="font-size: 12px; color: #888; margin-top: 5px;">Join our Telegram for more updates!</p>
         </div>
     </div>
-
-    <script>
-    const AD_LINK = "{ad_link}";
-    
-    document.querySelectorAll('.dl-trigger-btn').forEach(btn => {{
-        btn.onclick = function() {{
-            let count = parseInt(this.getAttribute('data-click-count'));
-            
-            let timerDisplay = this.nextElementSibling;
-            let realLink = timerDisplay.nextElementSibling;
-            let timerSpan = timerDisplay.querySelector('.timer-count');
-
-            if(count === 0) {{
-                window.open(AD_LINK, '_blank');
-                this.setAttribute('data-click-count', '1');
-                this.style.opacity = "0.7";
-                setTimeout(() => {{ this.style.opacity = "1"; }}, 500);
-            }} else {{
-                this.style.display = 'none'; 
-                timerDisplay.style.display = 'block';
-                let timeLeft = 10;
-                timerSpan.innerText = timeLeft;
-                let interval = setInterval(() => {{
-                    timeLeft--;
-                    timerSpan.innerText = timeLeft;
-                    if(timeLeft <= 0) {{
-                        clearInterval(interval);
-                        timerDisplay.style.display = 'none';
-                        realLink.href = this.getAttribute('data-url');
-                        realLink.style.setProperty('display', 'block', 'important'); 
-                    }}
-                }}, 1000);
-            }}
-        }}
-    }});
-    </script>
+    {script_html}
     <!-- Bot Generated Post End -->
     """
 
@@ -421,29 +437,41 @@ except Exception as e:
 async def start_cmd(client, message):
     user_conversations.pop(message.from_user.id, None)
     await message.reply_text(
-        "🎬 **Movie & Series Bot (Ultimate v6)**\n\n"
+        "🎬 **Movie & Series Bot (Multi-Ad v7)**\n\n"
         "⚡ `/post <Link or Name>` - Auto Post (TMDB/IMDb)\n"
         "✍️ `/manual` - Custom Manual Post\n"
-        "🛠 `/mysettings` - View Settings\n"
-        "⚙️ `/setadlink <URL>` - Set Ad Link\n\n"
+        "🛠 `/mysettings` - View Your Ad Links\n"
+        "⚙️ `/setadlink <URL1> <URL2> ...` - Set Multiple Ad Links\n\n"
+        "ℹ️ *Tip: একাধিক লিংক স্পেস দিয়ে সেট করুন বেশি ইনকামের জন্য।*"
     )
 
 @bot.on_message(filters.command("mysettings") & filters.private)
 async def mysettings_cmd(client, message):
     uid = message.from_user.id
-    my_ad_link = user_ad_links.get(uid, "❌ Not Set (Using Default)")
-    await message.reply_text(f"⚙️ **MY SETTINGS**\n🔗 Ad Link: `{my_ad_link}`", disable_web_page_preview=True)
+    my_links = user_ad_links.get(uid, DEFAULT_AD_LINKS)
+    
+    # Display nicely
+    links_str = "\n".join([f"{i+1}. {l}" for i, l in enumerate(my_links)])
+    
+    await message.reply_text(f"⚙️ **MY SETTINGS**\n\n🔗 **Your Ad Links:**\n{links_str}", disable_web_page_preview=True)
 
 @bot.on_message(filters.command("setadlink") & filters.private)
 async def set_ad(client, message):
+    # Support multiple links split by space
     if len(message.command) > 1:
-        link = message.command[1]
-        if link.startswith("http"):
-            user_ad_links[message.from_user.id] = link
+        raw_links = message.text.split(None, 1)[1].split()
+        valid_links = [l for l in raw_links if l.startswith("http")]
+        
+        if valid_links:
+            user_ad_links[message.from_user.id] = valid_links
             save_json(USER_AD_LINKS_FILE, user_ad_links)
-            await message.reply_text("✅ **Ad Link Saved!**")
+            
+            links_str = "\n".join([f"{i+1}. {l}" for i, l in enumerate(valid_links)])
+            await message.reply_text(f"✅ **Ad Links Saved!** ({len(valid_links)} links)\n\n{links_str}")
         else:
-            await message.reply_text("⚠️ Invalid Link. Must start with http/https.")
+            await message.reply_text("⚠️ Invalid Links. Must start with http/https.")
+    else:
+        await message.reply_text("⚠️ Usage Example:\n`/setadlink https://site1.com https://site2.com`")
 
 # ---- MANUAL POST COMMAND ----
 @bot.on_message(filters.command("manual") & filters.private)
@@ -456,7 +484,7 @@ async def manual_post_cmd(client, message):
     }
     await message.reply_text("✍️ **Manual Post Started**\n\nপ্রথমে আপনার মুভি বা সিরিজের **টাইটেল (Title)** লিখুন:")
 
-# ---- AUTO POST COMMAND (LINK + NAME) ----
+# ---- AUTO POST COMMAND ----
 @bot.on_message(filters.command("post") & filters.private)
 async def post_cmd(client, message):
     if len(message.command) < 2:
@@ -465,7 +493,6 @@ async def post_cmd(client, message):
     query = message.text.split(" ", 1)[1].strip()
     msg = await message.reply_text(f"🔎 Processing `{query}`...")
 
-    # 1. Check if it is a Direct Link
     m_type, m_id = extract_tmdb_id(query)
 
     if m_type and m_id:
@@ -479,7 +506,6 @@ async def post_cmd(client, message):
             else:
                 return await msg.edit_text("❌ IMDb ID not found in TMDB database.")
 
-        # Get Details Directly
         details = await get_tmdb_details(m_type, m_id)
         if not details: return await msg.edit_text("❌ Details not found from Link.")
         
@@ -489,7 +515,6 @@ async def post_cmd(client, message):
         await msg.edit_text(f"✅ Found: **{details.get('title') or details.get('name')}**\n\n🗣️ Enter **Language** (e.g. Hindi):")
         return
 
-    # 2. Search by Name
     results = await search_tmdb(query)
     if not results: return await msg.edit_text("❌ No results found.")
     
@@ -525,7 +550,6 @@ async def text_handler(client, message):
     state = convo.get("state")
     text = message.text.strip() if message.text else ""
     
-    # --- MANUAL FLOW ---
     if state == "manual_title":
         convo["details"]["title"] = text
         convo["state"] = "manual_plot"
@@ -551,7 +575,6 @@ async def text_handler(client, message):
             else: await msg.edit_text("❌ ইমেজ আপলোড ফেইল হয়েছে।")
         except: await msg.edit_text("❌ এরর হয়েছে।")
 
-    # --- AUTO FLOW ---
     elif state == "wait_lang":
         convo["details"]["custom_language"] = text
         convo["state"] = "wait_quality"
@@ -563,7 +586,6 @@ async def text_handler(client, message):
         buttons = [[InlineKeyboardButton("➕ Add Links", callback_data=f"lnk_yes_{uid}")], [InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]]
         await message.reply_text("🔗 Add Download Links?", reply_markup=InlineKeyboardMarkup(buttons))
         
-    # --- LINK HANDLERS ---
     elif state == "wait_link_name":
         convo["temp_name"] = text
         convo["state"] = "wait_link_url"
@@ -596,13 +618,15 @@ async def link_cb(client, cb):
 async def generate_final_post(client, uid, message):
     if uid not in user_conversations: return await message.edit_text("❌ Session expired.")
     convo = user_conversations[uid]
-    await message.edit_text("⏳ Generating HTML & Image (With Smart Buttons)...")
+    await message.edit_text("⏳ Generating HTML & Image (With Multi-Ad Logic)...")
     
     loop = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(None, generate_image, convo["details"])
     
-    ad_link = user_ad_links.get(uid, DEFAULT_AD_LINK)
-    html = generate_html_code(convo["details"], convo["links"], ad_link)
+    # --- HERE IS THE MULTI-LINK LOGIC ---
+    my_ad_links = user_ad_links.get(uid, DEFAULT_AD_LINKS)
+    html = generate_html_code(convo["details"], convo["links"], my_ad_links)
+    
     caption = generate_formatted_caption(convo["details"])
     
     convo["final"] = {"html": html}
@@ -648,5 +672,5 @@ if __name__ == "__main__":
     ping_thread.daemon = True
     ping_thread.start()
     
-    print("🚀 Bot Started Successfully!")
+    print("🚀 Bot Started Successfully (Multi-Ad Version)!")
     bot.run()
