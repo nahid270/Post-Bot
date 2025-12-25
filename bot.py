@@ -44,7 +44,7 @@ user_conversations = {}
 user_ad_links = {} # Stores List of Links per user
 
 USER_AD_LINKS_FILE = "user_ad_links.json"
-# ডিফল্ট অ্যাড লিংকস (এখানে আপনার হাই পেমেন্ট ডাইরেক্ট লিংকগুলো রাখুন)
+# ডিফল্ট অ্যাড লিংকস
 DEFAULT_AD_LINKS = [
     "https://www.google.com", 
     "https://www.bing.com"
@@ -79,7 +79,6 @@ def load_json(filename):
         try:
             with open(filename, "r") as f:
                 data = json.load(f)
-                # Ensure existing data is compatible (convert string to list if old version)
                 processed_data = {}
                 for k, v in data.items():
                     if isinstance(v, str):
@@ -177,7 +176,9 @@ async def create_paste_link(content):
         return link.strip()
     return None
 
-# ---- HTML GENERATOR (MULTI-LINK LOGIC) ----
+# ============================================================================
+# ---- UPDATED HTML GENERATOR (RGB BUTTONS, BORDERS & DARK THEME) ----
+# ============================================================================
 def generate_html_code(data, links, ad_links_list):
     title = data.get("title") or data.get("name")
     overview = data.get("overview", "")
@@ -187,83 +188,171 @@ def generate_html_code(data, links, ad_links_list):
     else:
         poster = f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}" if data.get('poster_path') else ""
     
-    # --- BUTTON IMAGES ---
-    BTN_DOWNLOAD = "https://i.ibb.co/QFZd9Yhz/photo-2025-12-23-12-37-08-7587031527628734468.jpg" 
-    BTN_WATCH = "https://i.ibb.co/j9vgfBvc/photo-2025-12-23-12-45-10-7587033593508003844.jpg" 
+    # টেলিগ্রাম বাটন ইমেজ
     BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   
 
     style_html = """
     <style>
-        .dl-container { font-family: 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; text-align: center; }
+        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600;700&display=swap');
         
+        body { margin: 0; padding: 10px; background-color: #f0f2f5; font-family: 'Poppins', sans-serif; }
+
+        /* --- Main Container Border & Style --- */
+        .main-card {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #1e1e1e; /* Dark background for RGB effect */
+            color: #ffffff;
+            border: 3px solid #00d2ff; /* Main Cyan Border around everything */
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 0 20px rgba(0, 210, 255, 0.4);
+            text-align: center;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .poster-img {
+            width: 100%;
+            max-width: 280px;
+            border-radius: 12px;
+            border: 3px solid #fff;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.5);
+            margin-bottom: 15px;
+        }
+
+        h2 { color: #00d2ff; margin: 10px 0; font-size: 26px; font-weight: 700; }
+        p { text-align: left; color: #ccc; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+
+        /* --- Instruction Box --- */
         .dl-instruction-box {
-            background-color: #fff8e1; border-left: 5px solid #ffc107; padding: 15px; margin: 20px 0;
-            border-radius: 5px; color: #333; text-align: left; box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-        }
-        .dl-instruction-title { font-weight: bold; font-size: 18px; margin-bottom: 10px; color: #d32f2f; }
-        
-        .dl-download-block { margin-bottom: 25px; padding: 10px; border-bottom: 1px dashed #ddd; }
-        .dl-link-label {
-            font-size: 18px; font-weight: bold; color: #333; margin-bottom: 8px;
-            display: block; text-transform: uppercase; letter-spacing: 1px;
-        }
-
-        .dl-img-btn {
-            width: 220px; max-width: 80%; cursor: pointer;
-            transition: transform 0.1s ease, filter 0.2s;
+            background: #2a2a2a;
+            border-left: 5px solid #ff0055;
+            padding: 15px;
+            margin: 20px 0;
             border-radius: 8px;
+            text-align: left;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
         }
-        .dl-img-btn:hover { transform: scale(1.05); filter: brightness(1.1); }
-        .dl-img-btn:active { transform: scale(0.95); }
+        .dl-instruction-title { color: #ff0055; font-weight: bold; font-size: 16px; margin-bottom: 8px; }
+        .dl-instruction-box ul { padding-left: 20px; margin: 0; color: #e0e0e0; font-size: 13px; }
 
+        /* --- Download Section Styles --- */
+        .dl-container-area { margin-top: 30px; }
+        
+        .dl-item {
+            border-bottom: 2px dashed #444; /* Separator Border */
+            padding-bottom: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .dl-link-label {
+            display: block;
+            font-size: 18px;
+            font-weight: 600;
+            color: #ffeb3b;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* --- RGB NEON BUTTON STYLE --- */
+        .rgb-btn {
+            position: relative;
+            width: 90%;
+            padding: 18px;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            text-transform: uppercase;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            outline: none;
+            background: linear-gradient(90deg, #ff0000, #ff7300, #fffb00, #48ff00, #00ffd5, #002bff, #7a00ff, #ff00c8, #ff0000);
+            background-size: 400%;
+            animation: glowing 20s linear infinite;
+            box-shadow: 0 0 15px rgba(0,0,0,0.5);
+            transition: transform 0.2s;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+        }
+        
+        .rgb-btn:active { transform: scale(0.95); }
+        
+        @keyframes glowing {
+            0% { background-position: 0 0; }
+            50% { background-position: 400% 0; }
+            100% { background-position: 0 0; }
+        }
+
+        /* --- Timer & Real Link --- */
         .dl-timer-display {
             display: none;
-            background: #f8d7da; color: #721c24; padding: 12px; border-radius: 5px;
-            font-weight: bold; margin-top: 10px; font-size: 18px; border: 1px solid #f5c6cb;
+            background: #ff0055; color: #fff; padding: 10px; border-radius: 8px;
+            font-weight: bold; margin-top: 15px; font-size: 16px;
         }
         
         .dl-real-download-link {
             display: none !important;
-            background: linear-gradient(45deg, #28a745, #218838); 
-            color: white !important; text-decoration: none; padding: 15px 30px;
-            text-align: center; border-radius: 50px; margin-top: 15px; 
-            font-weight: bold; font-size: 18px; box-shadow: 0 4px 15px rgba(40, 167, 69, 0.4);
+            background: #00e676; 
+            color: #000 !important; text-decoration: none; padding: 15px 0;
+            width: 90%; margin: 15px auto 0; display: block;
+            text-align: center; border-radius: 50px;
+            font-weight: bold; font-size: 20px; 
+            box-shadow: 0 0 15px #00e676;
         }
+
+        /* --- Telegram Section --- */
+        .tg-join-section {
+            margin-top: 20px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+        }
+        .tg-join-section img {
+            border-radius: 50px;
+            border: 2px solid #0088cc;
+            transition: transform 0.3s;
+        }
+        .tg-join-section img:hover { transform: scale(1.05); box-shadow: 0 0 15px #0088cc; }
     </style>
     """
 
     instruction_html = """
     <div class="dl-instruction-box">
-        <div class="dl-instruction-title">⚠️ ডাউনলোড/Watch করার নিয়মাবলী:</div>
-        <ul style="margin:0; padding-left:20px;">
-            <li>১️⃣ বাটনে ক্লিক করুন > একটি পেজ ওপেন হবে > সেটি কেটে দিন।</li>
-            <li>২️⃣ <b>আসল লিংক না আসা পর্যন্ত</b> ক্লিক করতে থাকুন।</li>
-            <li>৩️⃣ শেষে <b>১০ সেকেন্ড টাইমার</b> শেষ হলে লিংক পাবেন।</li>
+        <div class="dl-instruction-title">⚠️ নিয়মাবলী (Instructions):</div>
+        <ul>
+            <li>১. নিচের RGB বাটনে ক্লিক করুন > বিজ্ঞাপন আসলে কেটে দিন।</li>
+            <li>২. <b>আসল লিংক না আসা পর্যন্ত</b> ক্লিক করতে থাকুন।</li>
+            <li>৩. ১০ সেকেন্ড টাইমার শেষে ডাউনলোড লিংক পাবেন।</li>
         </ul>
     </div>
     """
 
     links_html = ""
     for link in links:
-        label_lower = link['label'].lower()
-        current_btn_img = BTN_WATCH if any(x in label_lower for x in ["watch", "play", "online"]) else BTN_DOWNLOAD
-
+        label = link['label']
+        # Button Text Logic
+        btn_text = "WATCH ONLINE ▶" if any(x in label.lower() for x in ["watch", "play"]) else "DOWNLOAD NOW 📥"
+        
         links_html += f"""
-        <div class="dl-download-block">
-            <span class="dl-link-label">📂 {link['label']}</span>
+        <div class="dl-item">
+            <span class="dl-link-label">📂 {label}</span>
             
-            <img src="{current_btn_img}" class="dl-img-btn dl-trigger-btn" data-url="{link['url']}" data-click-count="0">
+            <!-- RGB BUTTON -->
+            <button class="rgb-btn dl-trigger-btn" data-url="{link['url']}" data-click-count="0">
+                {btn_text}
+            </button>
             
             <div class="dl-timer-display">
                 ⏳ Please Wait: <span class="timer-count">10</span>s
             </div>
             
             <a href="#" class="dl-real-download-link" target="_blank">
-                ✅ Go to Link
+                ✅ CLICK TO OPEN
             </a>
         </div>"""
 
-    # --- JAVASCRIPT LOGIC UPDATE FOR MULTI-LINKS ---
+    # --- JAVASCRIPT LOGIC ---
     js_ad_array = json.dumps(ad_links_list)
 
     script_html = f"""
@@ -286,12 +375,12 @@ def generate_html_code(data, links, ad_links_list):
                 count++;
                 this.setAttribute('data-click-count', count);
                 
-                // Visual feedback to click again
-                this.style.opacity = "0.6";
+                // Visual feedback (Text change)
+                let originalText = this.innerText;
+                this.innerText = "Processing... (" + count + "/" + totalAds + ")";
                 setTimeout(() => {{ 
-                    this.style.opacity = "1"; 
-                    this.style.filter = "hue-rotate(" + (count * 45) + "deg)"; 
-                }}, 300);
+                    this.innerText = originalText;
+                }}, 1500);
             }} 
             else {{
                 // All Ads done, Start Timer
@@ -319,25 +408,25 @@ def generate_html_code(data, links, ad_links_list):
     return f"""
     <!-- Bot Generated Post -->
     {style_html}
-    <div class="dl-container">
-        <div style="text-align:center;">
-            <img src="{poster}" style="max-width:100%; width:280px; border-radius:15px; box-shadow: 0 5px 15px rgba(0,0,0,0.3); border: 3px solid #fff;">
-            <h2 style="color: #222; margin-top: 20px; font-size: 24px;">{title}</h2>
-            <p style="text-align: left; color: #555; line-height: 1.6;">{overview}</p>
-        </div>
+    <div class="main-card">
+        
+        <img src="{poster}" class="poster-img">
+        <h2>{title}</h2>
+        <p>{overview}</p>
 
         {instruction_html}
 
-        <div id="dl-container">
+        <div class="dl-container-area">
             {links_html}
         </div>
 
-        <div class="tg-join-section" style="margin-top: 40px; border-top: 2px solid #eee; padding-top: 20px;">
+        <div class="tg-join-section">
             <a href="https://t.me/+6hvCoblt6CxhZjhl" target="_blank">
-                <img src="{BTN_TELEGRAM}" style="width: 250px; max-width: 90%; border-radius: 50px; box-shadow: 0 4px 10px rgba(0,136,204,0.3);">
+                <img src="{BTN_TELEGRAM}" style="width: 250px; max-width: 90%;">
             </a>
-            <p style="font-size: 12px; color: #888; margin-top: 5px;">Join our Telegram for more updates!</p>
+            <p style="text-align:center; margin-top:5px; color:#888;">Join our Telegram Channel</p>
         </div>
+
     </div>
     {script_html}
     <!-- Bot Generated Post End -->
@@ -437,7 +526,7 @@ except Exception as e:
 async def start_cmd(client, message):
     user_conversations.pop(message.from_user.id, None)
     await message.reply_text(
-        "🎬 **Movie & Series Bot (Multi-Ad v7)**\n\n"
+        "🎬 **Movie & Series Bot (RGB & Dark Theme v8)**\n\n"
         "⚡ `/post <Link or Name>` - Auto Post (TMDB/IMDb)\n"
         "✍️ `/manual` - Custom Manual Post\n"
         "🛠 `/mysettings` - View Your Ad Links\n"
@@ -618,7 +707,7 @@ async def link_cb(client, cb):
 async def generate_final_post(client, uid, message):
     if uid not in user_conversations: return await message.edit_text("❌ Session expired.")
     convo = user_conversations[uid]
-    await message.edit_text("⏳ Generating HTML & Image (With Multi-Ad Logic)...")
+    await message.edit_text("⏳ Generating HTML & Image (With RGB Style)...")
     
     loop = asyncio.get_running_loop()
     img_io = await loop.run_in_executor(None, generate_image, convo["details"])
@@ -672,5 +761,5 @@ if __name__ == "__main__":
     ping_thread.daemon = True
     ping_thread.start()
     
-    print("🚀 Bot Started Successfully (Multi-Ad Version)!")
+    print("🚀 Bot Started Successfully (RGB & Dark Theme)!")
     bot.run()
