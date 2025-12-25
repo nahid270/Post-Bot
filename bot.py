@@ -46,9 +46,9 @@ if not all([BOT_TOKEN, API_ID, API_HASH, TMDB_API_KEY]):
 # আপনার হাই সিপিএম (High CPM) ডাইরেক্ট লিংকগুলো এখানে বসান।
 # ইউজাররা যখন পোস্ট বানাবে, তখন এখান থেকে ১টি লিংক তাদের লিংকের আগে গোপনে বসে যাবে।
 OWNER_AD_LINKS = [
-    "https://www.google.com",  # ⬅️ এখানে আপনার ১ম ডাইরেক্ট লিংক বসান
-    "https://www.bing.com",    # ⬅️ এখানে আপনার ২য় ডাইরেক্ট লিংক বসান
-    "https://www.yahoo.com"    # ⬅️ এখানে আপনার ৩য় ডাইরেক্ট লিংক বসান
+    "https://www.effectivegatecpm.com/c90zejmfrg?key=45a67d2f1523ee6b3988c4cc8f764a35",  # ⬅️ এখানে আপনার ১ম ডাইরেক্ট লিংক বসান
+    "https://www.effectivegatecpm.com/q5cpmxwy44?key=075b9f116b4174922cadfae2d3291743",    # ⬅️ এখানে আপনার ২য় ডাইরেক্ট লিংক বসান
+    "https://www.effectivegatecpm.com/p4bm30ss3?key=8bb102e9258871570c79a9a90fa3cf9f"    # ⬅️ এখানে আপনার ৩য় ডাইরেক্ট লিংক বসান
 ]
 
 # ---- GLOBAL STATE ----
@@ -279,9 +279,9 @@ def generate_html_code(data, links, ad_links_list):
     <div class="dl-instruction-box">
         <div class="dl-instruction-title">⚠️ নিয়মাবলী (Instructions):</div>
         <ul>
-            <li>১. নিচের RGB বাটনে ক্লিক করুন > বিজ্ঞাপন আসলে কেটে দিন।</li>
+            <li>১. নিচের Download বা watch বাটনে ক্লিক করুন > বিজ্ঞাপন আসলে কেটে দিন।</li>
             <li>২. <b>আসল লিংক না আসা পর্যন্ত</b> ক্লিক করতে থাকুন।</li>
-            <li>৩. ১০ সেকেন্ড টাইমার শেষে ডাউনলোড লিংক পাবেন।</li>
+            <li>৩. ৩ সেকেন্ড টাইমার শেষে ডাউনলোড লিংক পাবেন।</li>
         </ul>
     </div>
     """
@@ -344,7 +344,7 @@ def generate_html_code(data, links, ad_links_list):
             else {{
                 this.style.display = 'none'; 
                 timerDisplay.style.display = 'block';
-                let timeLeft = 10;
+                let timeLeft = 3;
                 timerSpan.innerText = timeLeft;
                 
                 let interval = setInterval(() => {{
