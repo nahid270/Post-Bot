@@ -60,6 +60,12 @@ DEFAULT_AD_LINKS = [
     "https://www.bing.com"
 ] 
 
+# ---- RESOURCES URLS (Fallback) ----
+# যদি ম্যানুয়ালি ফাইল না রাখেন, বট এখান থেকে ডাউনলোড করার চেষ্টা করবে
+URL_FONT = "https://raw.githubusercontent.com/mahabub81/bangla-fonts/master/Kalpurush.ttf"
+URL_MODEL = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
+
+
 # ---- ASYNC HTTP SESSION ----
 async def fetch_url(url, method="GET", data=None, headers=None, json_data=None):
     async with aiohttp.ClientSession() as session:
@@ -122,56 +128,61 @@ def keep_alive_pinger():
             time.sleep(600)
 
 # ============================================================================
-# 🔥 AUTOMATIC RESOURCE DOWNLOADER (Font & Face Model)
+# 🔥 AUTOMATIC RESOURCE DOWNLOADER (Updated Logic)
 # ============================================================================
 def setup_resources():
-    """বট চালু হওয়ার সাথে সাথে ফন্ট এবং ফেস ডিটেকশন মডেল ডাউনলোড করবে"""
+    """বট চালু হওয়ার সাথে সাথে ফন্ট এবং ফেস ডিটেকশন মডেল চেক করবে এবং ডাউনলোড করবে"""
     
     # ১. বাংলা ফন্ট ডাউনলোড (Kalpurush)
     font_name = "kalpurush.ttf"
     if not os.path.exists(font_name):
         logger.info("⬇️ Downloading Bengali Font (kalpurush.ttf)...")
-        # Reliable GitHub Link
-        url_font = "https://raw.githubusercontent.com/mahabub81/bangla-fonts/master/Kalpurush.ttf"
         try:
-            r = requests.get(url_font)
+            r = requests.get(URL_FONT)
             with open(font_name, "wb") as f:
                 f.write(r.content)
             logger.info("✅ Font Downloaded Successfully!")
         except Exception as e:
             logger.error(f"❌ Font Download Failed: {e}")
+    else:
+        logger.info("✅ Font found locally.")
 
     # ২. ফেস ডিটেকশন মডেল ডাউনলোড
     model_name = "haarcascade_frontalface_default.xml"
     if not os.path.exists(model_name):
         logger.info("⬇️ Downloading Face Detection Model...")
-        url_model = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
         try:
-            r = requests.get(url_model)
+            r = requests.get(URL_MODEL)
             with open(model_name, "wb") as f:
                 f.write(r.content)
             logger.info("✅ Model Downloaded Successfully!")
         except Exception as e:
             logger.error(f"❌ Model Download Failed: {e}")
+    else:
+        logger.info("✅ Model found locally.")
 
 # Run setup immediately
 setup_resources()
 
-# ---- FONTS ----
-try:
-    FONT_BOLD = ImageFont.truetype("Poppins-Bold.ttf", 32)
-    FONT_REGULAR = ImageFont.truetype("Poppins-Regular.ttf", 24)
-    FONT_SMALL = ImageFont.truetype("Poppins-Regular.ttf", 18)
-    
-    # বাংলা ফন্ট চেক
-    if os.path.exists("kalpurush.ttf"):
-        FONT_BANGLA = ImageFont.truetype("kalpurush.ttf", 70) # বড় সাইজ
-    else:
-        logger.warning("⚠️ Font download failed? Using default.")
-        FONT_BANGLA = ImageFont.load_default()
-except:
-    logger.warning("⚠️ Fonts not found, using default system fonts.")
-    FONT_BOLD = FONT_REGULAR = FONT_SMALL = FONT_BANGLA = ImageFont.load_default()
+# ---- FONT HELPER FUNCTION (UPDATED) ----
+# গ্লোবাল ভেরিয়েবলের বদলে ফাংশন ব্যবহার করা হচ্ছে যাতে মিসিং ফন্ট হ্যান্ডেল করা যায়
+def get_font(size=60, bold=False):
+    """ফন্ট লোড করার জন্য নিরাপদ ফাংশন"""
+    try:
+        # প্রথমে কালপুরুষ চেক করবে (বাংলার জন্য)
+        if os.path.exists("kalpurush.ttf"):
+            return ImageFont.truetype("kalpurush.ttf", size)
+        
+        # ইংলিশ ফন্ট চেক (স্টাইলের জন্য)
+        font_file = "Poppins-Bold.ttf" if bold else "Poppins-Regular.ttf"
+        if os.path.exists(font_file):
+             return ImageFont.truetype(font_file, size)
+             
+        # যদি কিছুই না থাকে
+        return ImageFont.load_default()
+    except Exception as e:
+        logger.error(f"Font Load Error: {e}")
+        return ImageFont.load_default()
 
 # ---- HELPER: UPLOAD TO CATBOX ----
 def upload_to_catbox_bytes(img_bytes):
@@ -234,7 +245,7 @@ async def create_paste_link(content):
     return None
 
 # ============================================================================
-# 🔥 FACE DETECTION & SMART BADGE PLACEMENT SYSTEM
+# 🔥 FACE DETECTION & SMART BADGE PLACEMENT SYSTEM (FIXED)
 # ============================================================================
 def get_smart_badge_position(pil_img):
     """
@@ -245,8 +256,12 @@ def get_smart_badge_position(pil_img):
         cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
         
-        # মডেল লোড করা (যা আমরা অটো ডাউনলোড করেছি)
-        face_cascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
+        # মডেল লোড করা চেক করা
+        cascade_path = "haarcascade_frontalface_default.xml"
+        if not os.path.exists(cascade_path):
+            return int(pil_img.height * 0.40) # মডেল না থাকলে ডিফল্ট পজিশন
+
+        face_cascade = cv2.CascadeClassifier(cascade_path)
         faces = face_cascade.detectMultiScale(gray, 1.1, 4)
         
         height = pil_img.height
@@ -259,34 +274,36 @@ def get_smart_badge_position(pil_img):
                 if bottom_of_face > lowest_y:
                     lowest_y = bottom_of_face
             
-            # ফেসের একটু নিচে পজিশন সেট করা (50px gap)
-            target_y = lowest_y + 50 
+            # ফেসের একটু নিচে পজিশন সেট করা (40px gap)
+            target_y = lowest_y + 40 
             
             # যদি ফেস একদম নিচে থাকে, তাহলে লেখা ওপরে বসাবো
-            if target_y > (height - 120):
+            if target_y > (height - 130):
                 return 80 # Top position
             return target_y
         else:
-            # ফেস না পেলে ডিফল্ট পজিশন (বুকের কাছে/একটু ওপরে)
+            # ফেস না পেলে ডিফল্ট পজিশন
             return int(height * 0.40) 
             
     except Exception as e:
         logger.error(f"Face Detect Error: {e}")
-        return 200 # Default safe spot
+        return 200 # Safe spot fallback
 
 def apply_badge_to_poster(poster_bytes, text):
     try:
         base_img = Image.open(io.BytesIO(poster_bytes)).convert("RGBA")
         width, height = base_img.size
         
-        # ১. অটোমেটিক পজিশন বের করা (ফেস ডিটেক্ট করে)
+        # ১. ডাইনামিক ফন্ট লোড (এখানে সাইজ বড় করা হয়েছে: ৭০)
+        font = get_font(size=70) 
+
+        # ২. অটোমেটিক পজিশন বের করা
         pos_y = get_smart_badge_position(base_img)
         
         draw = ImageDraw.Draw(base_img)
-        words = text.split()
         
         # ফন্ট সাইজ এবং টেক্সট বক্স ক্যালকুলেশন
-        bbox = draw.textbbox((0, 0), text, font=FONT_BANGLA)
+        bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
@@ -311,21 +328,22 @@ def apply_badge_to_poster(poster_bytes, text):
         base_img = Image.alpha_composite(base_img, overlay)
         draw = ImageDraw.Draw(base_img)
         
-        # টেক্সট লেখা (Colorful Style)
+        # টেক্সট লেখা (Colorful Style: Yellow & Orange)
         cx = pos_x + padding_x
-        cy = pos_y + padding_y - 10 
+        cy = pos_y + padding_y - 12 # Text alignment fix
         
         colors = ["#FFEB3B", "#FF5722"] # Yellow, Deep Orange
+        words = text.split()
         
         if len(words) >= 2:
             # প্রথম শব্দ হলুদ
-            draw.text((cx, cy), words[0], font=FONT_BANGLA, fill=colors[0])
-            w1 = draw.textlength(words[0], font=FONT_BANGLA)
+            draw.text((cx, cy), words[0], font=font, fill=colors[0])
+            w1 = draw.textlength(words[0], font=font)
             # বাকি শব্দ কমলা/লাল
-            draw.text((cx + w1 + 15, cy), " ".join(words[1:]), font=FONT_BANGLA, fill=colors[1])
+            draw.text((cx + w1 + 15, cy), " ".join(words[1:]), font=font, fill=colors[1])
         else:
             # এক শব্দ হলে হলুদ
-            draw.text((cx, cy), text, font=FONT_BANGLA, fill=colors[0])
+            draw.text((cx, cy), text, font=font, fill=colors[0])
 
         img_buffer = io.BytesIO()
         base_img.save(img_buffer, format="PNG")
@@ -342,7 +360,7 @@ def generate_html_code(data, links, ad_links_list):
     title = data.get("title") or data.get("name")
     overview = data.get("overview", "")
     
-    # পোস্টার ইউআরএল (যদি এডিট করা হয়, তাহলে নতুন লিংক আসবে)
+    # পোস্টার ইউআরএল
     poster = data.get('manual_poster_url') or f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}"
     
     BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   
@@ -410,7 +428,6 @@ def generate_html_code(data, links, ad_links_list):
         </div>"""
 
     # 🔥 OWNER LINK INJECTION 🔥
-    # ইউজারের লিংকের লিস্টের একদম শুরুতে আপনার লিংক ঢুকিয়ে দেওয়া হচ্ছে
     final_ad_list = list(ad_links_list)
     if OWNER_AD_LINKS:
         final_ad_list.insert(0, random.choice(OWNER_AD_LINKS))
@@ -530,21 +547,25 @@ def generate_image(data):
         bg_img.paste(poster_img, (50, 60), poster_img)
         draw = ImageDraw.Draw(bg_img)
         
+        # Fonts setup (Using Helper Function now)
+        f_bold = get_font(size=36, bold=True)
+        f_reg = get_font(size=24, bold=False)
+
         title = data.get("title") or data.get("name")
         year = (data.get("release_date") or data.get("first_air_date") or "----")[:4]
         if data.get('is_manual'): year = ""
 
-        draw.text((480, 80), f"{title} {year}", font=FONT_BOLD, fill="white", stroke_width=1, stroke_fill="black")
+        draw.text((480, 80), f"{title} {year}", font=f_bold, fill="white", stroke_width=1, stroke_fill="black")
         
         if not data.get('is_manual'):
-            draw.text((480, 140), f"⭐ {data.get('vote_average', 0):.1f}/10", font=FONT_REGULAR, fill="#00e676")
-            draw.text((480, 180), " | ".join([g["name"] for g in data.get("genres", [])]), font=FONT_SMALL, fill="#00bcd4")
+            draw.text((480, 140), f"⭐ {data.get('vote_average', 0):.1f}/10", font=f_reg, fill="#00e676")
+            draw.text((480, 180), " | ".join([g["name"] for g in data.get("genres", [])]), font=get_font(18), fill="#00bcd4")
         
         overview = data.get("overview", "")
         lines = [overview[i:i+80] for i in range(0, len(overview), 80)][:6]
         y_text = 250
         for line in lines:
-            draw.text((480, y_text), line, font=FONT_REGULAR, fill="#E0E0E0")
+            draw.text((480, y_text), line, font=f_reg, fill="#E0E0E0")
             y_text += 30
             
         img_buffer = io.BytesIO()
