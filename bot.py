@@ -61,7 +61,6 @@ DEFAULT_AD_LINKS = [
 ] 
 
 # ---- RESOURCES URLS (Fallback) ----
-# যদি ম্যানুয়ালি ফাইল না রাখেন, বট এখান থেকে ডাউনলোড করার চেষ্টা করবে
 URL_FONT = "https://raw.githubusercontent.com/mahabub81/bangla-fonts/master/Kalpurush.ttf"
 URL_MODEL = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
 
@@ -131,9 +130,6 @@ def keep_alive_pinger():
 # 🔥 AUTOMATIC RESOURCE DOWNLOADER (Updated Logic)
 # ============================================================================
 def setup_resources():
-    """বট চালু হওয়ার সাথে সাথে ফন্ট এবং ফেস ডিটেকশন মডেল চেক করবে এবং ডাউনলোড করবে"""
-    
-    # ১. বাংলা ফন্ট ডাউনলোড (Kalpurush)
     font_name = "kalpurush.ttf"
     if not os.path.exists(font_name):
         logger.info("⬇️ Downloading Bengali Font (kalpurush.ttf)...")
@@ -144,10 +140,7 @@ def setup_resources():
             logger.info("✅ Font Downloaded Successfully!")
         except Exception as e:
             logger.error(f"❌ Font Download Failed: {e}")
-    else:
-        logger.info("✅ Font found locally.")
 
-    # ২. ফেস ডিটেকশন মডেল ডাউনলোড
     model_name = "haarcascade_frontalface_default.xml"
     if not os.path.exists(model_name):
         logger.info("⬇️ Downloading Face Detection Model...")
@@ -158,27 +151,17 @@ def setup_resources():
             logger.info("✅ Model Downloaded Successfully!")
         except Exception as e:
             logger.error(f"❌ Model Download Failed: {e}")
-    else:
-        logger.info("✅ Model found locally.")
 
-# Run setup immediately
 setup_resources()
 
-# ---- FONT HELPER FUNCTION (UPDATED) ----
-# গ্লোবাল ভেরিয়েবলের বদলে ফাংশন ব্যবহার করা হচ্ছে যাতে মিসিং ফন্ট হ্যান্ডেল করা যায়
+# ---- FONT HELPER FUNCTION ----
 def get_font(size=60, bold=False):
-    """ফন্ট লোড করার জন্য নিরাপদ ফাংশন"""
     try:
-        # প্রথমে কালপুরুষ চেক করবে (বাংলার জন্য)
         if os.path.exists("kalpurush.ttf"):
             return ImageFont.truetype("kalpurush.ttf", size)
-        
-        # ইংলিশ ফন্ট চেক (স্টাইলের জন্য)
         font_file = "Poppins-Bold.ttf" if bold else "Poppins-Regular.ttf"
         if os.path.exists(font_file):
              return ImageFont.truetype(font_file, size)
-             
-        # যদি কিছুই না থাকে
         return ImageFont.load_default()
     except Exception as e:
         logger.error(f"Font Load Error: {e}")
@@ -245,21 +228,16 @@ async def create_paste_link(content):
     return None
 
 # ============================================================================
-# 🔥 FACE DETECTION & SMART BADGE PLACEMENT SYSTEM (FIXED)
+# 🔥 FACE DETECTION & SMART BADGE PLACEMENT SYSTEM
 # ============================================================================
 def get_smart_badge_position(pil_img):
-    """
-    পোস্টারে ফেস খুঁজে বের করে এবং লেখার জন্য সঠিক স্থান নির্বাচন করে।
-    """
     try:
-        # PIL ইমেজকে OpenCV ফরম্যাটে রূপান্তর
         cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
         
-        # মডেল লোড করা চেক করা
         cascade_path = "haarcascade_frontalface_default.xml"
         if not os.path.exists(cascade_path):
-            return int(pil_img.height * 0.40) # মডেল না থাকলে ডিফল্ট পজিশন
+            return int(pil_img.height * 0.40) 
 
         face_cascade = cv2.CascadeClassifier(cascade_path)
         faces = face_cascade.detectMultiScale(gray, 1.1, 4)
@@ -267,42 +245,32 @@ def get_smart_badge_position(pil_img):
         height = pil_img.height
         
         if len(faces) > 0:
-            # ফেস পাওয়া গেছে! সবচেয়ে নিচের ফেসটি খুঁজে বের করি
             lowest_y = 0
             for (x, y, w, h) in faces:
                 bottom_of_face = y + h
                 if bottom_of_face > lowest_y:
                     lowest_y = bottom_of_face
             
-            # ফেসের একটু নিচে পজিশন সেট করা (40px gap)
             target_y = lowest_y + 40 
-            
-            # যদি ফেস একদম নিচে থাকে, তাহলে লেখা ওপরে বসাবো
             if target_y > (height - 130):
-                return 80 # Top position
+                return 80 
             return target_y
         else:
-            # ফেস না পেলে ডিফল্ট পজিশন
             return int(height * 0.40) 
             
     except Exception as e:
         logger.error(f"Face Detect Error: {e}")
-        return 200 # Safe spot fallback
+        return 200
 
 def apply_badge_to_poster(poster_bytes, text):
     try:
         base_img = Image.open(io.BytesIO(poster_bytes)).convert("RGBA")
         width, height = base_img.size
         
-        # ১. ডাইনামিক ফন্ট লোড (এখানে সাইজ বড় করা হয়েছে: ৭০)
         font = get_font(size=70) 
-
-        # ২. অটোমেটিক পজিশন বের করা
         pos_y = get_smart_badge_position(base_img)
-        
         draw = ImageDraw.Draw(base_img)
         
-        # ফন্ট সাইজ এবং টেক্সট বক্স ক্যালকুলেশন
         bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
@@ -310,39 +278,28 @@ def apply_badge_to_poster(poster_bytes, text):
         padding_x, padding_y = 40, 20
         box_w = text_w + (padding_x * 2)
         box_h = text_h + (padding_y * 2)
-        
-        # পজিশন এক্স (সব সময় মাঝখানে/Center)
         pos_x = (width - box_w) // 2
         
-        # কালো বক্স (Background Strip) তৈরি
         overlay = Image.new('RGBA', base_img.size, (0,0,0,0))
         draw_overlay = ImageDraw.Draw(overlay)
-        
-        # বক্স আঁকা (কালো এবং একটু স্বচ্ছ - Shadow Effect)
         draw_overlay.rectangle(
             [pos_x, pos_y, pos_x + box_w, pos_y + box_h], 
             fill=(0, 0, 0, 220) 
         )
-        
-        # মেইন ইমেজের সাথে মার্জ করা
         base_img = Image.alpha_composite(base_img, overlay)
         draw = ImageDraw.Draw(base_img)
         
-        # টেক্সট লেখা (Colorful Style: Yellow & Orange)
         cx = pos_x + padding_x
-        cy = pos_y + padding_y - 12 # Text alignment fix
+        cy = pos_y + padding_y - 12
         
-        colors = ["#FFEB3B", "#FF5722"] # Yellow, Deep Orange
+        colors = ["#FFEB3B", "#FF5722"]
         words = text.split()
         
         if len(words) >= 2:
-            # প্রথম শব্দ হলুদ
             draw.text((cx, cy), words[0], font=font, fill=colors[0])
             w1 = draw.textlength(words[0], font=font)
-            # বাকি শব্দ কমলা/লাল
             draw.text((cx + w1 + 15, cy), " ".join(words[1:]), font=font, fill=colors[1])
         else:
-            # এক শব্দ হলে হলুদ
             draw.text((cx, cy), text, font=font, fill=colors[0])
 
         img_buffer = io.BytesIO()
@@ -354,15 +311,12 @@ def apply_badge_to_poster(poster_bytes, text):
         return io.BytesIO(poster_bytes)
 
 # ============================================================================
-# ---- HTML GENERATOR (RGB STYLE + OWNER LINK INJECTION) ----
+# ---- HTML GENERATOR (UPDATED WITH RULES & PROCESSING DELAY) ----
 # ============================================================================
 def generate_html_code(data, links, ad_links_list):
     title = data.get("title") or data.get("name")
     overview = data.get("overview", "")
-    
-    # পোস্টার ইউআরএল
     poster = data.get('manual_poster_url') or f"https://image.tmdb.org/t/p/w500{data.get('poster_path')}"
-    
     BTN_TELEGRAM = "https://i.ibb.co/kVfJvhzS/photo-2025-12-23-12-38-56-7587031987190235140.jpg"   
 
     style_html = """
@@ -381,6 +335,20 @@ def generate_html_code(data, links, ad_links_list):
         }
         h2 { color: #00d2ff; margin: 10px 0; font-size: 26px; font-weight: 700; }
         p { text-align: left; color: #ccc; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+        
+        /* RULES BOX STYLE */
+        .rules-box {
+            background: rgba(255, 235, 59, 0.1); border: 2px dashed #ffeb3b;
+            padding: 15px; border-radius: 10px; margin: 20px 0; text-align: left;
+        }
+        .rules-title {
+            color: #ffeb3b; font-weight: bold; font-size: 20px; 
+            margin-bottom: 8px; text-transform: uppercase;
+        }
+        .rules-text {
+            color: #ffffff; font-size: 15px; line-height: 1.5;
+        }
+
         .dl-container-area { margin-top: 30px; }
         .dl-item { border-bottom: 2px dashed #444; padding-bottom: 20px; margin-bottom: 20px; }
         .dl-link-label {
@@ -397,6 +365,8 @@ def generate_html_code(data, links, ad_links_list):
             text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
         }
         .rgb-btn:active { transform: scale(0.95); }
+        .rgb-btn:disabled { opacity: 0.7; cursor: wait; }
+
         @keyframes glowing {
             0% { background-position: 0 0; }
             50% { background-position: 400% 0; }
@@ -432,37 +402,51 @@ def generate_html_code(data, links, ad_links_list):
     if OWNER_AD_LINKS:
         final_ad_list.insert(0, random.choice(OWNER_AD_LINKS))
 
+    # --- UPDATED JAVASCRIPT WITH PROCESSING DELAY ---
     script_html = f"""
     <script>
     const AD_LINKS = {json.dumps(final_ad_list)}; 
     document.querySelectorAll('.dl-trigger-btn').forEach(btn => {{
         btn.onclick = function() {{
-            let count = parseInt(this.getAttribute('data-click-count'));
-            if(count < AD_LINKS.length) {{
-                // Open Ad
-                window.open(AD_LINKS[count], '_blank');
-                this.setAttribute('data-click-count', count + 1);
-            }} 
-            else {{
-                // Show Real Link
-                this.style.display = 'none'; 
-                let timerDiv = this.nextElementSibling;
-                let realLink = timerDiv.nextElementSibling;
-                let timerSpan = timerDiv.querySelector('.timer-count');
-                timerDiv.style.display = 'block';
-                let timeLeft = 3;
-                timerSpan.innerText = timeLeft;
-                let interval = setInterval(() => {{
-                    timeLeft--;
+            // 1. Show Processing
+            let originalText = this.innerText;
+            this.innerText = "🔄 Processing...";
+            this.disabled = true; // Disable click
+
+            // 2. Wait 1.5 Seconds
+            setTimeout(() => {{
+                // Restore button
+                this.innerText = originalText;
+                this.disabled = false;
+
+                // 3. Main Logic
+                let count = parseInt(this.getAttribute('data-click-count'));
+                if(count < AD_LINKS.length) {{
+                    // Open Ad
+                    window.open(AD_LINKS[count], '_blank');
+                    this.setAttribute('data-click-count', count + 1);
+                }} 
+                else {{
+                    // Show Real Link Logic
+                    this.style.display = 'none'; 
+                    let timerDiv = this.nextElementSibling;
+                    let realLink = timerDiv.nextElementSibling;
+                    let timerSpan = timerDiv.querySelector('.timer-count');
+                    timerDiv.style.display = 'block';
+                    let timeLeft = 3;
                     timerSpan.innerText = timeLeft;
-                    if(timeLeft <= 0) {{
-                        clearInterval(interval);
-                        timerDiv.style.display = 'none';
-                        realLink.href = this.getAttribute('data-url');
-                        realLink.style.setProperty('display', 'block', 'important'); 
-                    }}
-                }}, 1000);
-            }}
+                    let interval = setInterval(() => {{
+                        timeLeft--;
+                        timerSpan.innerText = timeLeft;
+                        if(timeLeft <= 0) {{
+                            clearInterval(interval);
+                            timerDiv.style.display = 'none';
+                            realLink.href = this.getAttribute('data-url');
+                            realLink.style.setProperty('display', 'block', 'important'); 
+                        }}
+                    }}, 1000);
+                }}
+            }}, 1500); // 1.5s Delay
         }}
     }});
     </script>
@@ -475,6 +459,18 @@ def generate_html_code(data, links, ad_links_list):
         <img src="{poster}" class="poster-img">
         <h2>{title}</h2>
         <p>{overview}</p>
+        
+        <!-- RULES BOX ADDED HERE -->
+        <div class="rules-box">
+            <div class="rules-title">⚠️ ডাউনলোড করার নিয়ম:</div>
+            <div class="rules-text">
+                ১. প্রথমে <b>Download Button</b> এ ক্লিক করুন।<br>
+                ২. ক্লিক করার পর <b>Processing</b> দেখাবে এবং একটি অ্যাড ওপেন হতে পারে।<br>
+                ৩. দয়া করে <b>Back</b> করে আবার বাটনে ক্লিক করুন।<br>
+                ৪. ২-৩ বার এমন হওয়ার পর <b>Original Link</b> পেয়ে যাবেন।
+            </div>
+        </div>
+
         <div class="dl-container-area">{links_html}</div>
         <div class="tg-join-section">
             <a href="https://t.me/+6hvCoblt6CxhZjhl" target="_blank">
@@ -510,7 +506,6 @@ def generate_formatted_caption(data):
 
 def generate_image(data):
     try:
-        # 1. POSTER DOWNLOAD
         if data.get('manual_poster_url'):
             poster_url = data.get('manual_poster_url')
         else:
@@ -520,15 +515,12 @@ def generate_image(data):
 
         poster_bytes = requests.get(poster_url, timeout=10).content
         
-        # 2. CHECK IF BADGE NEEDED & APPLY SMART FACE DETECTION
         if data.get('badge_text'):
             badge_io = apply_badge_to_poster(poster_bytes, data['badge_text'])
             poster_bytes = badge_io.getvalue()
-            # এখন poster_bytes-এ ব্যাজযুক্ত ছবি আছে
 
         poster_img = Image.open(io.BytesIO(poster_bytes)).convert("RGBA").resize((400, 600))
         
-        # 3. BACKDROP GENERATION
         bg_img = Image.new('RGBA', (1280, 720), (10, 10, 20))
         backdrop = None
         if data.get('backdrop_path') and not data.get('is_manual'):
@@ -547,7 +539,6 @@ def generate_image(data):
         bg_img.paste(poster_img, (50, 60), poster_img)
         draw = ImageDraw.Draw(bg_img)
         
-        # Fonts setup (Using Helper Function now)
         f_bold = get_font(size=36, bold=True)
         f_reg = get_font(size=24, bold=False)
 
@@ -573,7 +564,6 @@ def generate_image(data):
         bg_img.save(img_buffer, format="PNG")
         img_buffer.seek(0)
         
-        # Return Both: Telegram Image (Big) & Poster Bytes (Small, Badged)
         return img_buffer, poster_bytes 
     except Exception as e:
         logger.error(f"Img Gen Error: {e}")
@@ -745,7 +735,6 @@ async def text_handler(client, message):
         else:
             await message.reply_text("⚠️ Invalid URL. Try again.")
     
-    # ---- NEW STATE: BADGE TEXT INPUT ----
     elif state == "wait_badge_text":
         convo["details"]["badge_text"] = text
         await message.reply_text(f"✅ ব্যাজ যুক্ত করা হচ্ছে: **{text}**\n\n🕵️‍♂️ **Detecting Faces to avoid covering...**\n⏳ Generating Final Post...")
@@ -764,9 +753,7 @@ async def link_cb(client, cb):
         user_conversations[uid]["state"] = "wait_link_name"
         await cb.message.edit_text("📝 বাটনের নাম লিখুন (Ex: '720p Download' or 'Watch Online'):")
     else:
-        # Finish বাটনে ক্লিক করলে এখানে আসবে
         user_conversations[uid]["state"] = "wait_badge_text"
-        
         btns = [[InlineKeyboardButton("🚫 Skip Badge (No Text)", callback_data=f"skip_badge_{uid}")]]
         await cb.message.edit_text(
             "🖼️ **পোস্টারে কোনো লেখা (Badge) বসাতে চান?**\n\n"
@@ -776,7 +763,6 @@ async def link_cb(client, cb):
             reply_markup=InlineKeyboardMarkup(btns)
         )
 
-# ---- SKIP BADGE HANDLER ----
 @bot.on_callback_query(filters.regex("^skip_badge_"))
 async def skip_badge_cb(client, cb):
     uid = int(cb.data.split("_")[-1])
@@ -791,16 +777,13 @@ async def generate_final_post(client, uid, message):
     
     loop = asyncio.get_running_loop()
     
-    # ইমেজ এবং পোস্টার জেনারেট (Face detection inside)
     img_io, poster_bytes = await loop.run_in_executor(None, generate_image, convo["details"])
     
-    # যদি ব্যাজ বসানো হয়, তবে HTML এর জন্য নতুন লিংক লাগবে (Catbox upload)
     if convo["details"].get("badge_text") and poster_bytes:
         new_poster_url = await loop.run_in_executor(None, upload_to_catbox_bytes, poster_bytes)
         if new_poster_url:
-            convo["details"]["manual_poster_url"] = new_poster_url # আপডেট লিংক
+            convo["details"]["manual_poster_url"] = new_poster_url 
     
-    # HTML তৈরি
     my_ad_links = user_ad_links.get(uid, DEFAULT_AD_LINKS)
     html = generate_html_code(convo["details"], convo["links"], my_ad_links)
     
