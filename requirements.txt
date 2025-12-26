@@ -5,3 +5,5 @@ Pillow
 flask
 python-dotenv
 requests
+numpy
+opencv-python-headless
