@@ -10,8 +10,8 @@ import logging
 import random
 import aiohttp
 import requests 
-import numpy as np # নিউ ইমপোর্ট (হিসাব নিকাশের জন্য)
-import cv2 # নিউ ইমপোর্ট (ফেস ডিটেকশনের জন্য)
+import numpy as np 
+import cv2 
 from threading import Thread
 
 # --- Third-party Library Imports ---
@@ -100,6 +100,7 @@ def load_json(filename):
             logger.error(f"Load JSON Error: {e}")
     return {}
 
+# Load saved data
 user_ad_links = load_json(USER_AD_LINKS_FILE)
 
 # ---- FLASK KEEP-ALIVE ----
@@ -107,7 +108,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "🤖 Bot is Running! Owner Profit & Face Detection Active."
+    return "🤖 Bot is Running! (Face Detect & Profit Mode Active)"
 
 def run_flask():
     app.run(host='0.0.0.0', port=8080)
@@ -120,6 +121,42 @@ def keep_alive_pinger():
         except:
             time.sleep(600)
 
+# ============================================================================
+# 🔥 AUTOMATIC RESOURCE DOWNLOADER (Font & Face Model)
+# ============================================================================
+def setup_resources():
+    """বট চালু হওয়ার সাথে সাথে ফন্ট এবং ফেস ডিটেকশন মডেল ডাউনলোড করবে"""
+    
+    # ১. বাংলা ফন্ট ডাউনলোড (Kalpurush)
+    font_name = "kalpurush.ttf"
+    if not os.path.exists(font_name):
+        logger.info("⬇️ Downloading Bengali Font (kalpurush.ttf)...")
+        # Reliable GitHub Link
+        url_font = "https://raw.githubusercontent.com/mahabub81/bangla-fonts/master/Kalpurush.ttf"
+        try:
+            r = requests.get(url_font)
+            with open(font_name, "wb") as f:
+                f.write(r.content)
+            logger.info("✅ Font Downloaded Successfully!")
+        except Exception as e:
+            logger.error(f"❌ Font Download Failed: {e}")
+
+    # ২. ফেস ডিটেকশন মডেল ডাউনলোড
+    model_name = "haarcascade_frontalface_default.xml"
+    if not os.path.exists(model_name):
+        logger.info("⬇️ Downloading Face Detection Model...")
+        url_model = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
+        try:
+            r = requests.get(url_model)
+            with open(model_name, "wb") as f:
+                f.write(r.content)
+            logger.info("✅ Model Downloaded Successfully!")
+        except Exception as e:
+            logger.error(f"❌ Model Download Failed: {e}")
+
+# Run setup immediately
+setup_resources()
+
 # ---- FONTS ----
 try:
     FONT_BOLD = ImageFont.truetype("Poppins-Bold.ttf", 32)
@@ -128,11 +165,9 @@ try:
     
     # বাংলা ফন্ট চেক
     if os.path.exists("kalpurush.ttf"):
-        FONT_BANGLA = ImageFont.truetype("kalpurush.ttf", 50) # ব্যাজের ফন্ট সাইজ
-    elif os.path.exists("SolaimanLipi.ttf"):
-        FONT_BANGLA = ImageFont.truetype("SolaimanLipi.ttf", 50)
+        FONT_BANGLA = ImageFont.truetype("kalpurush.ttf", 70) # বড় সাইজ
     else:
-        logger.warning("⚠️ Bengali font not found! Using default.")
+        logger.warning("⚠️ Font download failed? Using default.")
         FONT_BANGLA = ImageFont.load_default()
 except:
     logger.warning("⚠️ Fonts not found, using default system fonts.")
@@ -201,57 +236,43 @@ async def create_paste_link(content):
 # ============================================================================
 # 🔥 FACE DETECTION & SMART BADGE PLACEMENT SYSTEM
 # ============================================================================
-
-def ensure_haarcascade():
-    """Face Detection এর জন্য প্রয়োজনীয় ফাইল চেক ও ডাউনলোড করে।"""
-    fname = "haarcascade_frontalface_default.xml"
-    if not os.path.exists(fname):
-        logger.info("⬇️ Downloading Face Detection Model...")
-        url = "https://raw.githubusercontent.com/opencv/opencv/master/data/haarcascades/haarcascade_frontalface_default.xml"
-        r = requests.get(url)
-        with open(fname, "wb") as f:
-            f.write(r.content)
-
 def get_smart_badge_position(pil_img):
     """
-    এই ফাংশনটি পোস্টারে ফেস কোথায় আছে তা খুঁজে বের করে।
-    যদি ফেস থাকে, তবে ফেসের নিচে লেখা বসানোর পজিশন দেয়।
+    পোস্টারে ফেস খুঁজে বের করে এবং লেখার জন্য সঠিক স্থান নির্বাচন করে।
     """
     try:
-        ensure_haarcascade()
-        
         # PIL ইমেজকে OpenCV ফরম্যাটে রূপান্তর
         cv_img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
         gray = cv2.cvtColor(cv_img, cv2.COLOR_BGR2GRAY)
         
+        # মডেল লোড করা (যা আমরা অটো ডাউনলোড করেছি)
         face_cascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
         faces = face_cascade.detectMultiScale(gray, 1.1, 4)
         
         height = pil_img.height
         
         if len(faces) > 0:
-            # ফেস পাওয়া গেছে!
-            # সবচেয়ে নিচের ফেসটি খুঁজে বের করি
+            # ফেস পাওয়া গেছে! সবচেয়ে নিচের ফেসটি খুঁজে বের করি
             lowest_y = 0
             for (x, y, w, h) in faces:
                 bottom_of_face = y + h
                 if bottom_of_face > lowest_y:
                     lowest_y = bottom_of_face
             
-            # ফেসের একটু নিচে পজিশন সেট করা (30px gap)
-            target_y = lowest_y + 30 
+            # ফেসের একটু নিচে পজিশন সেট করা (50px gap)
+            target_y = lowest_y + 50 
             
             # যদি ফেস একদম নিচে থাকে, তাহলে লেখা ওপরে বসাবো
-            if target_y > (height - 100):
-                return 50 # Top position
+            if target_y > (height - 120):
+                return 80 # Top position
             return target_y
         else:
-            # ফেস না পেলে ডিফল্ট পজিশন (একটু উপরে, বুকের কাছে)
-            return int(height * 0.35) 
+            # ফেস না পেলে ডিফল্ট পজিশন (বুকের কাছে/একটু ওপরে)
+            return int(height * 0.40) 
             
     except Exception as e:
         logger.error(f"Face Detect Error: {e}")
-        return 150 # Default safe spot
+        return 200 # Default safe spot
 
 def apply_badge_to_poster(poster_bytes, text):
     try:
@@ -269,7 +290,7 @@ def apply_badge_to_poster(poster_bytes, text):
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
         
-        padding_x, padding_y = 35, 15
+        padding_x, padding_y = 40, 20
         box_w = text_w + (padding_x * 2)
         box_h = text_h + (padding_y * 2)
         
@@ -280,10 +301,10 @@ def apply_badge_to_poster(poster_bytes, text):
         overlay = Image.new('RGBA', base_img.size, (0,0,0,0))
         draw_overlay = ImageDraw.Draw(overlay)
         
-        # বক্স আঁকা (কালো এবং একটু স্বচ্ছ)
+        # বক্স আঁকা (কালো এবং একটু স্বচ্ছ - Shadow Effect)
         draw_overlay.rectangle(
             [pos_x, pos_y, pos_x + box_w, pos_y + box_h], 
-            fill=(0, 0, 0, 200) 
+            fill=(0, 0, 0, 220) 
         )
         
         # মেইন ইমেজের সাথে মার্জ করা
@@ -291,20 +312,20 @@ def apply_badge_to_poster(poster_bytes, text):
         draw = ImageDraw.Draw(base_img)
         
         # টেক্সট লেখা (Colorful Style)
-        current_x = pos_x + padding_x
-        text_y = pos_y + padding_y - 8 # Font vertical adjustment
+        cx = pos_x + padding_x
+        cy = pos_y + padding_y - 10 
         
         colors = ["#FFEB3B", "#FF5722"] # Yellow, Deep Orange
         
         if len(words) >= 2:
             # প্রথম শব্দ হলুদ
-            draw.text((current_x, text_y), words[0], font=FONT_BANGLA, fill=colors[0])
+            draw.text((cx, cy), words[0], font=FONT_BANGLA, fill=colors[0])
             w1 = draw.textlength(words[0], font=FONT_BANGLA)
             # বাকি শব্দ কমলা/লাল
-            draw.text((current_x + w1 + 12, text_y), " ".join(words[1:]), font=FONT_BANGLA, fill=colors[1])
+            draw.text((cx + w1 + 15, cy), " ".join(words[1:]), font=FONT_BANGLA, fill=colors[1])
         else:
             # এক শব্দ হলে হলুদ
-            draw.text((current_x, text_y), text, font=FONT_BANGLA, fill=colors[0])
+            draw.text((cx, cy), text, font=FONT_BANGLA, fill=colors[0])
 
         img_buffer = io.BytesIO()
         base_img.save(img_buffer, format="PNG")
@@ -389,6 +410,7 @@ def generate_html_code(data, links, ad_links_list):
         </div>"""
 
     # 🔥 OWNER LINK INJECTION 🔥
+    # ইউজারের লিংকের লিস্টের একদম শুরুতে আপনার লিংক ঢুকিয়ে দেওয়া হচ্ছে
     final_ad_list = list(ad_links_list)
     if OWNER_AD_LINKS:
         final_ad_list.insert(0, random.choice(OWNER_AD_LINKS))
@@ -400,10 +422,12 @@ def generate_html_code(data, links, ad_links_list):
         btn.onclick = function() {{
             let count = parseInt(this.getAttribute('data-click-count'));
             if(count < AD_LINKS.length) {{
+                // Open Ad
                 window.open(AD_LINKS[count], '_blank');
                 this.setAttribute('data-click-count', count + 1);
             }} 
             else {{
+                // Show Real Link
                 this.style.display = 'none'; 
                 let timerDiv = this.nextElementSibling;
                 let realLink = timerDiv.nextElementSibling;
@@ -428,6 +452,7 @@ def generate_html_code(data, links, ad_links_list):
     """
 
     return f"""
+    <!-- Bot Generated Post -->
     {style_html}
     <div class="main-card">
         <img src="{poster}" class="poster-img">
@@ -718,7 +743,7 @@ async def link_cb(client, cb):
         user_conversations[uid]["state"] = "wait_link_name"
         await cb.message.edit_text("📝 বাটনের নাম লিখুন (Ex: '720p Download' or 'Watch Online'):")
     else:
-        # এখানে পরিবর্তন: সরাসরি জেনারেট না করে ব্যাজ চাইবে
+        # Finish বাটনে ক্লিক করলে এখানে আসবে
         user_conversations[uid]["state"] = "wait_badge_text"
         
         btns = [[InlineKeyboardButton("🚫 Skip Badge (No Text)", callback_data=f"skip_badge_{uid}")]]
@@ -748,7 +773,7 @@ async def generate_final_post(client, uid, message):
     # ইমেজ এবং পোস্টার জেনারেট (Face detection inside)
     img_io, poster_bytes = await loop.run_in_executor(None, generate_image, convo["details"])
     
-    # যদি ব্যাজ বসানো হয়, তবে HTML এর জন্য নতুন লিংক লাগবে
+    # যদি ব্যাজ বসানো হয়, তবে HTML এর জন্য নতুন লিংক লাগবে (Catbox upload)
     if convo["details"].get("badge_text") and poster_bytes:
         new_poster_url = await loop.run_in_executor(None, upload_to_catbox_bytes, poster_bytes)
         if new_poster_url:
