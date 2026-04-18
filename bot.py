@@ -201,6 +201,45 @@ async def fetch_url(url, method="GET", data=None, headers=None, json_data=None):
             return None
     return None
 
+# ====================================================================
+# 🔥 NEW: STREAMING UPLOADER FUNCTIONS (ZERO DISK USE)
+# ====================================================================
+
+async def stream_upload_to_gofile(client, message):
+    """Gofile Streaming Upload"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("https://api.gofile.io/get_server") as resp:
+                server = (await resp.json())["data"]["server"]
+            
+            file_stream = await client.stream_media(message)
+            data = aiohttp.FormData()
+            data.add_field('file', file_stream, filename=message.document.file_name if message.document else "video.mp4")
+            
+            async with session.post(f"https://{server}.gofile.io/uploadFile", data=data) as up_resp:
+                res = await up_resp.json()
+                if res["status"] == "ok": return res["data"]["downloadPage"]
+    except Exception as e:
+        logger.error(f"Gofile Error: {e}")
+    return None
+
+async def stream_upload_to_pixeldrain(client, message):
+    """Pixeldrain Streaming Upload"""
+    try:
+        url = "https://pixeldrain.com/api/file"
+        file_stream = await client.stream_media(message)
+        data = aiohttp.FormData()
+        data.add_field('file', file_stream, filename=message.document.file_name if message.document else "video.mp4")
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=data) as resp:
+                if resp.status == 201:
+                    res = await resp.json()
+                    return f"https://pixeldrain.com/u/{res['id']}"
+    except Exception as e:
+        logger.error(f"Pixeldrain Error: {e}")
+    return None
+
 # ---- FLASK KEEP-ALIVE ----
 app = Flask(__name__)
 
@@ -998,8 +1037,7 @@ async def on_select(client, cb):
         await cb.message.edit_text(f"✅ Selected: **{details.get('title') or details.get('name')}**\n\n🗣️ Enter **Language** (e.g. Hindi):")
     except Exception as e: logger.error(f"Select Error: {e}")
 
-# ---- CONVERSATION HANDLER (MODIFIED FOR FILE STORE) ----
-# 🔥 Filters updated to accept VIDEO & DOCUMENT for File Store & PHOTO for Manual Uploads
+# ---- CONVERSATION HANDLER (MODIFIED FOR STREAMING MULTI-UPLOAD) ----
 @bot.on_message(filters.private & (filters.text | filters.video | filters.document | filters.photo) & ~filters.command(["start", "post", "manual", "edit", "history", "setadlink", "mysettings", "auth", "ban", "stats", "broadcast", "setownerads", "setshare", "setdel"]))
 async def text_handler(client, message):
     uid = message.from_user.id
@@ -1067,50 +1105,54 @@ async def text_handler(client, message):
         await message.reply_text(f"✅ বাটনের নাম সেট হয়েছে: **{text}**\n\n🔗 এবার **URL** দিন অথবা সরাসরি **ভিডিও ফাইলটি** ফরোয়ার্ড করুন:")
         
     elif state == "wait_link_url":
-        # 🔥 FILE HANDLING LOGIC
-        file_link = None
-        
+        # 🔥 UPDATED: STREAMING MULTI-UPLOAD LOGIC
         if message.video or message.document:
             if DB_CHANNEL_ID == 0:
-                return await message.reply_text("❌ Error: DB_CHANNEL_ID not configured in .env")
+                return await message.reply_text("❌ DB Channel ID not configured.")
             
-            temp_msg = await message.reply_text("⏳ **Saving File to Database...**")
+            status = await message.reply_text("⚡ **সরাসরি সার্ভারগুলোতে পাঠানো হচ্ছে...**\n(No disk space used)")
             try:
-                # Copy file to DB Channel
+                # 1. Telegram BackUp
                 copied_msg = await message.copy(chat_id=DB_CHANNEL_ID)
-                # Generate Bot Start Link
                 bot_username = (await client.get_me()).username
-                file_link = f"https://t.me/{bot_username}?start=get-{copied_msg.id}"
-                await temp_msg.delete()
+                tg_link = f"https://t.me/{bot_username}?start=get-{copied_msg.id}"
+                convo["links"].append({"label": f"📁 {convo['temp_name']} (Telegram)", "url": tg_link})
+                
+                # 2. Gofile Mirror
+                await status.edit("🚀 **Mirror 1: Gofile এ আপলোড হচ্ছে...**")
+                g_url = await stream_upload_to_gofile(client, message)
+                if g_url: convo["links"].append({"label": f"🚀 {convo['temp_name']} (Gofile)", "url": g_url})
+                
+                # 3. Pixeldrain Mirror
+                await status.edit("⚡ **Mirror 2: Pixeldrain এ আপলোড হচ্ছে...**")
+                p_url = await stream_upload_to_pixeldrain(client, message)
+                if p_url: convo["links"].append({"label": f"⚡ {convo['temp_name']} (Pixeldrain)", "url": p_url})
+                
+                await status.delete()
             except Exception as e:
-                logger.error(f"File Save Error: {e}")
-                await temp_msg.edit_text("❌ Failed to save file.")
-                return
-
+                logger.error(f"Stream Error: {e}")
+                return await message.reply_text(f"❌ Upload Failed: {e}")
         elif text.startswith("http"):
-            file_link = text
-
-        if file_link:
-            convo["links"].append({"label": convo["temp_name"], "url": file_link})
-            
-            # Check if edit mode
-            if convo.get("post_id"):
-                 convo["state"] = "edit_mode"
-                 btns = [[InlineKeyboardButton("➕ Add Another", callback_data=f"add_lnk_edit_{uid}")],[InlineKeyboardButton("✅ Generate New Code", callback_data=f"gen_edit_{uid}")]]
-                 await message.reply_text(f"✅ **Saved!**\nLink: `{file_link}`\n\nAdd another or Finish?", reply_markup=InlineKeyboardMarkup(btns))
-            else:
-                convo["state"] = "ask_links"
-                buttons = [[InlineKeyboardButton("➕ Add Another", callback_data=f"lnk_yes_{uid}")],[InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]]
-                await message.reply_text(f"✅ **Saved!**\nLink: `{file_link}`\nTotal: {len(convo['links'])}", reply_markup=InlineKeyboardMarkup(buttons))
+             convo["links"].append({"label": convo["temp_name"], "url": text})
         else:
-            await message.reply_text("⚠️ Invalid Input. Please send a **URL** or **Forward a File**.")
+            return await message.reply_text("⚠️ Invalid Input. URL দিন অথবা ফাইল ফরোয়ার্ড করুন।")
+
+        # After saving links (either file or URL)
+        if convo.get("post_id"):
+             convo["state"] = "edit_mode"
+             btns = [[InlineKeyboardButton("➕ Add Another", callback_data=f"add_lnk_edit_{uid}")],[InlineKeyboardButton("✅ Generate New Code", callback_data=f"gen_edit_{uid}")]]
+             await message.reply_text(f"✅ **Saved!**\nTotal Servers: {len(convo['links'])}\n\nAdd another or Finish?", reply_markup=InlineKeyboardMarkup(btns))
+        else:
+            convo["state"] = "ask_links"
+            buttons = [[InlineKeyboardButton("➕ Add Another", callback_data=f"lnk_yes_{uid}")],[InlineKeyboardButton("🏁 Finish", callback_data=f"lnk_no_{uid}")]]
+            await message.reply_text(f"✅ **Saved!**\nTotal: {len(convo['links'])}", reply_markup=InlineKeyboardMarkup(buttons))
     
     elif state == "wait_badge_text":
         convo["details"]["badge_text"] = text
         buttons = [[InlineKeyboardButton("✅ Safe", callback_data=f"safe_yes_{uid}")],[InlineKeyboardButton("🔞 18+ (Force Blur)", callback_data=f"safe_no_{uid}")]]
         await message.reply_text("🛡️ **Safety Check:**", reply_markup=InlineKeyboardMarkup(buttons))
 
-# 🔥 HANDLERS FOR CALLBACKS
+# 🔥 HANDLERS FOR CALLBACKS (REST OF ORIGINAL CODE)
 @bot.on_callback_query(filters.regex("^ss_"))
 async def ss_cb(client, cb):
     try: action, uid = cb.data.rsplit("_", 1); uid = int(uid)
@@ -1139,9 +1181,8 @@ async def link_cb(client, cb):
     else:
         user_conversations[uid]["state"] = "wait_badge_text"
         btns = [[InlineKeyboardButton("🚫 Skip Badge (No Text)", callback_data=f"skip_badge_{uid}")]]
-        await cb.message.edit_text("🖼️ **পোস্টারে কোনো লেখা (Badge) বসাতে চান?**\n\nউদাহরণ: `বাংলা ডাবিং`, `Hindi Dubbed`\n_(ফেস ডিটেক্ট করে লেখাটি অটোমেটিক ফাঁকা জায়গায় বসানো হবে)_\n\n👇 নিচে লিখে পাঠান অথবা Skip করুন:", reply_markup=InlineKeyboardMarkup(btns))
+        await cb.message.edit_text("🖼️ **পোস্টারে কোনো লেখা (Badge) বসাতে চান?**\n\nনিচে লিখে পাঠান অথবা Skip করুন:", reply_markup=InlineKeyboardMarkup(btns))
 
-# 🔥 NEW: Edit Mode Callbacks
 @bot.on_callback_query(filters.regex("^add_lnk_edit_"))
 async def add_lnk_edit(client, cb):
     uid = int(cb.data.split("_")[-1])
@@ -1153,33 +1194,22 @@ async def add_lnk_edit(client, cb):
 
 @bot.on_callback_query(filters.regex("^setlname_"))
 async def set_lname_cb(client, cb):
-    try: 
-        _, action, uid = cb.data.split("_")
-        uid = int(uid)
+    try: _, action, uid = cb.data.split("_"); uid = int(uid)
     except: return
     if uid not in user_conversations: return
-    
     if action == "custom":
         user_conversations[uid]["state"] = "wait_link_name_custom"
         await cb.message.edit_text("📝 কাস্টম বাটনের নাম লিখুন (Ex: '1080p Download'):")
     else:
-        name_map = {
-            "telegram": "Telegram Files",
-            "terabox": "Terabox Link",
-            "download": "Download"
-        }
-        selected_name = name_map.get(action, "Download")
-        
+        selected_name = {"telegram": "Telegram Files", "terabox": "Terabox Link", "download": "Download"}.get(action, "Download")
         user_conversations[uid]["temp_name"] = selected_name
         user_conversations[uid]["state"] = "wait_link_url"
-        
-        await cb.message.edit_text(f"✅ বাটন সিলেক্ট করা হয়েছে: **{selected_name}**\n\n🔗 এবার **URL** দিন অথবা সরাসরি **ভিডিও ফাইলটি** ফরোয়ার্ড করুন:")
+        await cb.message.edit_text(f"✅ বাটন: **{selected_name}**\n\n🔗 URL দিন অথবা ফাইল ফরোয়ার্ড করুন:")
 
 @bot.on_callback_query(filters.regex("^gen_edit_"))
 async def gen_edit_finish(client, cb):
     uid = int(cb.data.split("_")[-1])
     if uid in user_conversations:
-        await cb.answer("⏳ Generating New Post...", show_alert=False)
         await generate_final_post(client, uid, cb.message)
 
 @bot.on_callback_query(filters.regex("^skip_badge_"))
@@ -1195,80 +1225,47 @@ async def safety_cb(client, cb):
     try: action, uid = cb.data.rsplit("_", 1); uid = int(uid)
     except: return
     if uid not in user_conversations: return
-    user_conversations[uid]["details"]["force_adult"] = True if action == "safe_no" else False
-    await cb.message.edit_text("⏳ Generating Final Post...")
+    user_conversations[uid]["details"]["force_adult"] = (action == "safe_no")
     await generate_final_post(client, uid, cb.message)
 
-# 🔥 UPDATED: Generate Final Post (WITH REVENUE SHARE LOGIC)
 async def generate_final_post(client, uid, message):
-    if uid not in user_conversations: 
-        try: return await message.edit_text("❌ Session expired. Try again.")
-        except: return
-
+    if uid not in user_conversations: return
     convo = user_conversations[uid]
-    
-    # Send loading status
-    try:
-        status_msg = await message.edit_text("⏳ **Generating Post...**\nChecking ad configuration...")
-    except:
-        status_msg = message # Fallback
+    status_msg = await (message.edit_text("⏳ **Generating Post...**") if hasattr(message, 'edit_text') else client.send_message(uid, "⏳ **Generating Post...**"))
 
     try:
-        # 🔥 Save/Update Post in DB
         pid = await save_post_to_db(convo["details"], convo["links"])
-        
-        loop = asyncio.get_running_loop()
-        
-        # Image Generation (Safe execution)
-        img_io = None
-        poster_bytes = None
-        try:
-            img_io, poster_bytes = await loop.run_in_executor(None, generate_image, convo["details"])
-        except Exception as e:
-            logger.error(f"Image Gen Failed: {e}")
+        img_io, poster_bytes = await asyncio.get_event_loop().run_in_executor(None, generate_image, convo["details"])
 
-        # Update Poster URL if new badge applied
         if convo["details"].get("badge_text") and poster_bytes:
-            new_poster_url = await loop.run_in_executor(None, upload_to_catbox_bytes, poster_bytes)
+            new_poster_url = await asyncio.get_event_loop().run_in_executor(None, upload_to_catbox_bytes, poster_bytes)
             if new_poster_url: convo["details"]["manual_poster_url"] = new_poster_url 
         
-        # 🔥 REVENUE SHARE FETCH
         my_ad_links = await get_user_ads(uid)
         owner_ad_links = await get_owner_ads()
         admin_share = await get_admin_share()
         
-        # Pass share to HTML generator
         html = generate_html_code(convo["details"], convo["links"], my_ad_links, owner_ad_links, admin_share)
         caption = generate_formatted_caption(convo["details"], pid)
         convo["final"] = {"html": html}
         
         btns = [[InlineKeyboardButton("📄 Get Blogger Code", callback_data=f"get_code_{uid}")]]
         
-        # 1. Send Result to User
         if img_io:
-            await client.send_photo(message.chat.id, img_io, caption=caption, reply_markup=InlineKeyboardMarkup(btns))
-            # Delete status message
-            try: await status_msg.delete()
-            except: pass
+            await client.send_photo(uid, img_io, caption=caption, reply_markup=InlineKeyboardMarkup(btns))
         else:
-            await client.send_message(message.chat.id, caption, reply_markup=InlineKeyboardMarkup(btns))
-            try: await status_msg.delete()
-            except: pass
+            await client.send_message(uid, caption, reply_markup=InlineKeyboardMarkup(btns))
         
-        # 🔥 2. SEND TO LOG CHANNEL
+        await status_msg.delete()
+
         if LOG_CHANNEL_ID and LOG_CHANNEL_ID != 0 and img_io:
             img_io.seek(0)
             user_info = await client.get_users(uid)
-            log_caption = caption + f"\n\n👤 **Generated By:** {user_info.mention} (`{uid}`)\n💰 **Admin Share:** {admin_share}%\n🕒 **Time:** {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}"
-            try: await client.send_photo(LOG_CHANNEL_ID, img_io, caption=log_caption)
-            except: pass
+            await client.send_photo(LOG_CHANNEL_ID, img_io, caption=caption + f"\n\n👤 Generated By: {user_info.mention}")
             
     except Exception as e:
-        logger.error(f"Post Generation Critical Error: {e}")
-        try:
-            await status_msg.edit_text(f"❌ **Error:** Something went wrong.\n`{str(e)}`")
-        except:
-            await client.send_message(message.chat.id, f"❌ **Error:** Something went wrong during post generation.\n`{str(e)}`")
+        logger.error(f"Post Error: {e}")
+        await status_msg.edit_text(f"❌ Error: {e}")
 
 @bot.on_callback_query(filters.regex("^get_code_"))
 async def get_code(client, cb):
@@ -1277,24 +1274,14 @@ async def get_code(client, cb):
     data = user_conversations.get(uid, {})
     if "final" not in data: return await cb.answer("Expired.", show_alert=True)
     
-    await cb.answer("⏳ Uploading to Dpaste...", show_alert=False)
+    await cb.answer("⏳ Uploading to Dpaste...")
     link = await create_paste_link(data["final"]["html"])
-    
     if link: await cb.message.reply_text(f"✅ **Code Ready!**\n\n👇 Copy:\n{link}", disable_web_page_preview=True)
-    else:
-        file = io.BytesIO(data["final"]["html"].encode())
-        file.name = "blogger_post.html"
-        await client.send_document(cb.message.chat.id, file, caption="⚠️ Link failed. File attached.")
+    else: await client.send_document(uid, io.BytesIO(data["final"]["html"].encode()), file_name="post.html")
 
 # ---- ENTRY POINT ----
 if __name__ == "__main__":
-    flask_thread = Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
-    ping_thread = Thread(target=keep_alive_pinger)
-    ping_thread.daemon = True
-    ping_thread.start()
-    
-    print("🚀 Ultimate Bot Started (v42 - Auto Delete + Smart Caption)!")
+    Thread(target=run_flask).start()
+    Thread(target=keep_alive_pinger).start()
+    logger.info("🚀 Bot Started with Streaming Multi-Upload Support!")
     bot.run()
